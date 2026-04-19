@@ -1,0 +1,55 @@
+# ─── Core Framework ───
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+celery[redis]
+redis
+pydantic
+pydantic-settings
+python-multipart
+websockets
+
+# ─── HTTP & Async ───
+requests
+aiohttp
+aiofiles
+httpx
+
+# ─── Auth & Security ───
+python-jose[cryptography]
+passlib[bcrypt]
+cryptography
+
+# ─── LLM Providers ───
+openai
+anthropic
+google-genai
+
+# ─── Content Processing ───
+beautifulsoup4
+yt-dlp>=2024.12.13
+pysrt
+Pillow
+
+# ─── Document Parsing ───
+PyPDF2
+python-docx
+
+# ─── TTS ───
+edge-tts
+
+# ─── Media ───
+qrcode[pil]
+psutil
+
+# ─── OAuth / Upload ───
+google-api-python-client
+google-auth-oauthlib
+
+# ─── Testing ───
+pytest
+pytest-cov
+pytest-mock
+pytest-asyncio
+ruff

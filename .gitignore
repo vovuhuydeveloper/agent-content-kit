@@ -1,0 +1,55 @@
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ─── Virtual Environment ───
+venv/
+.venv/
+env/
+
+# ─── IDE ───
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ─── Environment & Secrets ───
+.env
+!.env.example
+data/config/oauth_tokens/
+data/config/*.json
+
+# ─── Data & Logs ───
+data/jobs/
+data/logs/
+data/*.db
+*.db
+*.sqlite3
+
+# ─── Node / Dashboard ───
+dashboard/node_modules/
+dashboard/dist/
+
+# ─── Docker ───
+nango-data/
+
+# ─── Testing ───
+.coverage
+htmlcov/
+coverage.xml
+.pytest_cache/
+
+# ─── OS ───
+Thumbs.db
+.DS_Store
+*.log
+data/characters/
+
+# Browser login sessions (contains cookies - DO NOT commit)
+data/sessions/

@@ -1,0 +1,80 @@
+services:
+  # Redis - Message broker cho Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # FastAPI app - Web UI + REST API
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///./data/autoclip.db
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      python -m uvicorn backend.main:app 
+      --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  # Celery Worker - Chạy agent pipeline
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///./data/autoclip.db
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A backend.core.celery_app worker 
+      --loglevel=info 
+      --concurrency=2
+      -Q processing,video,notification,upload
+    restart: unless-stopped
+
+  # Celery Beat - Scheduled tasks (performance tracking, cleanup)
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.agents
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A backend.core.celery_app beat
+      --loglevel=info
+    restart: unless-stopped
+
+volumes:
+  redis_data:

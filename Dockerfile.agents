@@ -1,0 +1,60 @@
+# ── Stage 1: Build Dashboard ──────────────────────────────────
+FROM node:18-alpine AS dashboard-builder
+
+WORKDIR /build
+COPY dashboard/package*.json ./
+RUN npm ci --silent
+COPY dashboard/ ./
+RUN npm run build
+
+# ── Stage 2: Python App ──────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies + fonts for Vietnamese text
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    fonts-dejavu-core \
+    fonts-freefont-ttf \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install yt-dlp
+RUN pip install --no-cache-dir yt-dlp
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install additional dependencies for agents
+RUN pip install --no-cache-dir \
+    edge-tts \
+    beautifulsoup4 \
+    Pillow \
+    requests \
+    aiohttp \
+    openai \
+    pexels-api \
+    httpx \
+    playwright
+
+# Install Playwright browsers
+RUN playwright install chromium --with-deps
+
+# Copy project
+COPY backend/ ./backend/
+
+# Copy built dashboard from stage 1
+COPY --from=dashboard-builder /build/dist/ ./dashboard/dist/
+
+# Create data directories
+RUN mkdir -p data/db data/videos data/assets data/characters data/config data/jobs data/logs data/sessions
+
+# Set Python path
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

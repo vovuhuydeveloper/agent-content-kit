@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install dependencies
+        run: |
+          pip install ruff
+          pip install -r requirements.txt
+      
+      - name: Run Ruff
+        run: ruff check backend/ --output-format=github
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-mock pytest-asyncio
+      
+      - name: Run tests
+        env:
+          CELERY_ALWAYS_EAGER: "True"
+          DATABASE_URL: "sqlite:///./data/test.db"
+        run: |
+          mkdir -p data
+          pytest tests/ -v --cov=backend --cov-report=xml --cov-report=term-missing
+      
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  build-dashboard:
+    name: Build Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      
+      - name: Install & Build
+        working-directory: dashboard
+        run: |
+          npm install
+          npm run build
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [test, build-dashboard]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build image
+        run: docker build -f Dockerfile.agents -t agent-content-kit:latest .

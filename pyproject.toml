@@ -1,0 +1,45 @@
+[project]
+name = "agent-content-kit"
+version = "1.0.0"
+description = "AI-powered multi-platform content pipeline"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tasks/__init__.py" = ["F401", "F403", "F405"]
+"backend/models/__init__.py" = ["F401"]
+"backend/api/v1/__init__.py" = ["F401", "E402"]
+"backend/main.py" = ["E402", "F401"]
+"backend/core/database.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["backend"]
+
+[tool.coverage.run]
+source = ["backend"]
+omit = [
+    "tests/*",
+    "*/migrations/*",
+    "backend/core/nango_client.py",
+    "backend/core/oauth_manager.py",
+    "backend/core/path_utils.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 20

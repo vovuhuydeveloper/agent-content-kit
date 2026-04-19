@@ -1,0 +1,55 @@
+version: '3.9'
+
+# ─── Nango OAuth Proxy (self-hosted) ───
+# Handles OAuth flows for TikTok, YouTube, Facebook automatically
+# User just clicks "Connect" — no developer app setup needed
+
+services:
+  nango-db:
+    image: postgres:16.0-alpine
+    container_name: nango-db
+    environment:
+      POSTGRES_PASSWORD: ${NANGO_DB_PASSWORD:-nango}
+      POSTGRES_USER: ${NANGO_DB_USER:-nango}
+      POSTGRES_DB: ${NANGO_DB_NAME:-nango}
+    volumes:
+      - nango-data:/var/lib/postgresql/data
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  nango-server:
+    image: nangohq/nango-server:hosted
+    container_name: nango-server
+    platform: linux/amd64
+    environment:
+      - NANGO_ENCRYPTION_KEY=${NANGO_ENCRYPTION_KEY}
+      - NANGO_DB_USER=${NANGO_DB_USER:-nango}
+      - NANGO_DB_PASSWORD=${NANGO_DB_PASSWORD:-nango}
+      - NANGO_DB_HOST=nango-db
+      - NANGO_DB_NAME=${NANGO_DB_NAME:-nango}
+      - NANGO_DB_SSL=false
+      - RECORDS_DATABASE_URL=postgresql://${NANGO_DB_USER:-nango}:${NANGO_DB_PASSWORD:-nango}@nango-db:5432/${NANGO_DB_NAME:-nango}
+      - SERVER_PORT=3003
+      - NANGO_SERVER_URL=${NANGO_SERVER_URL:-http://localhost:3003}
+      - FLAG_AUTH_ENABLED=${FLAG_AUTH_ENABLED:-false}
+      - NANGO_DASHBOARD_USERNAME=${NANGO_DASHBOARD_USERNAME:-admin}
+      - NANGO_DASHBOARD_PASSWORD=${NANGO_DASHBOARD_PASSWORD:-admin}
+      - LOG_LEVEL=info
+      - FLAG_SERVE_CONNECT_UI=true
+      - NANGO_LOGS_ENABLED=false
+    ports:
+      - '3003:3003'   # Nango API
+      - '3009:3009'   # Nango Connect UI
+    depends_on:
+      - nango-db
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+volumes:
+  nango-data:
+
+networks:
+  agent-network:
+    driver: bridge
