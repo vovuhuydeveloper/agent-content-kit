@@ -37,7 +37,7 @@
 | 📄 **Any Source** | URL, YouTube link, PDF, DOCX, or plain text as input |
 | 📱 **Telegram Approval** | Receive video preview + approve/reject buttons directly in Telegram |
 | 🚀 **Auto-Publish** | Upload to YouTube, TikTok and Facebook via browser automation — no OAuth needed |
-| 📅 **Content Calendar** | Schedule recurring content creation jobs |
+| 📅 **Content Calendar** | Schedule recurring video creation with cron — daily, weekly, any cadence. Zero manual work. |
 | 📊 **Analytics Dashboard** | Track views, likes, engagement across all platforms |
 | 🧪 **A/B Testing** | Auto-generate multiple script variants to pick the best one |
 | 🎨 **Modern Dashboard** | React + Material UI frontend with real-time pipeline status |
@@ -138,6 +138,90 @@ Or go to **http://localhost:8000/connections** → click **Connect** for each pl
 | **YouTube** | YouTube Studio automation | Shorts 9:16, max 60s |
 | **TikTok** | tiktok.com/upload automation | 9:16, max 10 min |
 | **Facebook** | Reels creator automation | 9:16, max 90s |
+
+---
+
+## 📅 Content Calendar — Set It and Forget It
+
+Agent Content Kit's scheduler runs **fully automatically** on a cron schedule. Define a template once — it creates and publishes new videos every day without any manual input.
+
+### How the Scheduler Works
+
+```
+⏰ Celery Beat ticks every minute
+     ↓
+Finds schedules that are due
+     ↓
+Auto-creates a new ContentJob from the template
+     ↓
+🤖 Runs the full 10-agent pipeline
+     ↓
+📱 Sends video preview to Telegram for approval
+     ↓
+✅ Approve → auto-publishes to YouTube / TikTok / Facebook
+```
+
+### Create a Schedule (via API)
+
+```bash
+curl -X POST http://localhost:8000/api/v1/schedules/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily TikTok from VnExpress",
+    "cron_expression": "0 9 * * *",
+    "source_url": "https://vnexpress.net",
+    "video_count": 3,
+    "platforms": ["tiktok", "youtube"],
+    "language": "vi",
+    "niche": "news"
+  }'
+```
+
+### Or Use the Dashboard
+
+Go to **http://localhost:8000** → **Calendar** tab → click **+ New Schedule**
+
+### Cron Expression Cheat Sheet
+
+| Cron | Meaning |
+|------|---------|
+| `0 9 * * *` | Every day at 9:00 AM |
+| `0 9,17 * * *` | Every day at 9 AM and 5 PM |
+| `0 8 * * 1-5` | Weekdays at 8 AM |
+| `0 8 * * 1,3,5` | Mon, Wed, Fri at 8 AM |
+| `0 9 * * 1` | Every Monday at 9 AM |
+| `0 */6 * * *` | Every 6 hours |
+
+### Schedule Management
+
+```bash
+# List all schedules
+GET /api/v1/schedules/
+
+# Trigger a schedule immediately (for testing)
+POST /api/v1/schedules/{id}/run-now
+
+# Enable / disable a schedule
+POST /api/v1/schedules/{id}/toggle
+
+# Update cron timing
+PUT /api/v1/schedules/{id}
+```
+
+### Requirements
+
+> ⚠️ The Content Calendar requires **Celery + Redis** running alongside the API.
+
+```bash
+# Option A: Docker Compose (recommended)
+docker compose up -d
+# Includes API + Celery Worker + Celery Beat + Redis automatically
+
+# Option B: Manual
+uvicorn backend.main:app --host 0.0.0.0 --port 8000  # Terminal 1
+celery -A backend.core.celery_app worker --loglevel=info -Q processing  # Terminal 2
+celery -A backend.core.celery_app beat --loglevel=info  # Terminal 3
+```
 
 ---
 
