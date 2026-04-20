@@ -49,8 +49,10 @@ class TestLLMManager:
             LLMManager(provider="nonexistent", api_key="test-key")
 
     def test_missing_key_raises(self):
-        with pytest.raises(ValueError, match="No API key found"):
-            LLMManager(provider="openai", api_key="")
+        # Ensure no API keys leak from the real environment into this test
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": "", "GOOGLE_API_KEY": ""}):
+            with pytest.raises(ValueError, match="No API key found"):
+                LLMManager(provider="openai", api_key="")
 
     def test_init_openai(self):
         manager = LLMManager(provider="openai", api_key="sk-test-key", model="gpt-4o-mini")
