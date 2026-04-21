@@ -45,7 +45,53 @@
 
 ---
 
-## 🚀 Quick Start (5 minutes)
+## 🐳 Quick Start with Docker (Recommended)
+
+**Fastest way to get running in 2 minutes.**
+
+### ⚠️ Prerequisite: Docker Desktop
+
+Docker Desktop must be installed and **running**.
+
+- **macOS/Windows/Linux:** Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
+- **Start Docker Desktop** before proceeding (look for the whale icon in menu bar/taskbar)
+
+### 1. Clone & Configure
+
+```bash
+git clone https://github.com/vovuhuydeveloper/agent-content-kit.git
+cd agent-content-kit
+
+# Create environment config from template
+cp .env.example .env
+
+# IMPORTANT: Edit .env and add your API keys
+# Minimum required: OPENAI_API_KEY + PEXELS_API_KEY
+# See "Required API Keys" section below for details
+```
+
+### 2. Start Everything
+
+```bash
+# Start all services (API + Celery + Redis)
+docker compose -f docker-compose.agents.yml up -d
+```
+
+That's it! All services start automatically:
+- FastAPI backend (port 8000)
+- Celery worker (background tasks)
+- Celery beat (scheduler)
+- Redis (task queue)
+
+### 3. Open Dashboard
+
+Navigate to **http://localhost:8000** — the Setup Wizard will guide you through the rest!
+
+---
+
+## 🔧 Alternative: Manual Setup (Python)
+
+If you prefer running locally without Docker:
 
 ### Prerequisites
 
@@ -68,53 +114,65 @@ pip install yt-dlp
 
 > ⚠️ **FFmpeg is required** — without it, videos will not render. Verify with `ffmpeg -version`
 
-### 1. Clone & Install
+### Installation Steps
 
 ```bash
-git clone https://github.com/vovuhuydeveloper/agent-content-kit.git
-cd agent-content-kit
-
+# 1. Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 2. Activate it (IMPORTANT!)
+# macOS/Linux:
+source venv/bin/activate
+# Windows: venv\Scripts\activate
+
+# 3. Install dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Playwright browser
+# 4. Install Playwright browser
 playwright install chromium
 
-# Configure environment
-cp .env.example .env
-# Edit .env — minimum required: OPENAI_API_KEY + PEXELS_API_KEY
-```
-
-### 2. Build Dashboard
-
-```bash
+# 5. Build dashboard
 cd dashboard
 npm install
 npm run build
 cd ..
+
+# 6. Start the server
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 3. Start
-
-```bash
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
-
-Open **http://localhost:8000** → the Setup Wizard guides you through everything.
+Open **http://localhost:8000** to access the dashboard.
 
 ---
 
 ## 🔑 Required API Keys
 
-| Key | Required? | Cost | How to Get |
-|-----|:---------:|------|-----------| 
-| **OpenAI** | ✅ Yes | Pay-per-use | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
-| **Pexels** | ✅ Yes | **Free** | [pexels.com/api](https://www.pexels.com/api/) |
-| **Telegram Bot** | Recommended | Free | [@BotFather](https://t.me/BotFather) → `/newbot` |
-| **ElevenLabs** | Optional | Freemium | [elevenlabs.io](https://elevenlabs.io/) — or use free `edge-tts` |
+### Minimum Setup (Required)
 
-> **Minimum setup:** Just `OPENAI_API_KEY` + `PEXELS_API_KEY` and you can create videos right away.
+| Key | Description | Cost | How to Get |
+|-----|-------------|------|------------|
+| **LLM_PROVIDER** | Choose: `openai`, `claude`, or `gemini` | Free | Set in `.env` file |
+| **OPENAI_API_KEY** | Required if `LLM_PROVIDER=openai` | Pay-per-use | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| **PEXELS_API_KEY** | Stock video footage (required for video creation) | **Free** | [pexels.com/api](https://www.pexels.com/api/) — instant approval |
+
+### Recommended (For Full Experience)
+
+| Key | Description | Cost |
+|-----|-------------|------|
+| **TELEGRAM_BOT_TOKEN** | For video approval notifications | Free via [@BotFather](https://t.me/BotFather) |
+| **TELEGRAM_CHAT_ID** | Your chat ID (auto-detected in Setup Wizard) | Free |
+
+### Optional
+
+| Key | Description | Cost |
+|-----|-------------|------|
+| **ELEVENLABS_API_KEY** | Premium voice synthesis (falls back to free `edge-tts`) | Freemium |
+| **ANTHROPIC_API_KEY** | Alternative LLM (if `LLM_PROVIDER=claude`) | Pay-per-use |
+| **GOOGLE_API_KEY** | Alternative LLM (if `LLM_PROVIDER=gemini`) | Pay-per-use |
+
+> **Quick start:** Set `LLM_PROVIDER=openai`, add your `OPENAI_API_KEY` and `PEXELS_API_KEY` — that's all you need to create your first video.
+> **No Telegram?** The system still works, but you'll need to manually approve jobs via the Dashboard before auto-publishing.
 
 ---
 
@@ -214,7 +272,7 @@ PUT /api/v1/schedules/{id}
 
 ```bash
 # Option A: Docker Compose (recommended)
-docker compose up -d
+docker compose -f docker-compose.agents.yml up -d
 # Includes API + Celery Worker + Celery Beat + Redis automatically
 
 # Option B: Manual
@@ -247,44 +305,6 @@ Pipeline completes
 
 ---
 
-## 📁 Project Structure
-
-```
-agent-content-kit/
-├── backend/
-│   ├── agents/              # 10 pipeline agents
-│   │   ├── fetcher.py           # Content fetching (URL, YouTube, docs)
-│   │   ├── analyzer.py          # Competitor analysis
-│   │   ├── scriptwriter.py      # AI script generation
-│   │   ├── ab_testing.py        # A/B variant generation
-│   │   ├── voice.py             # Text-to-speech (ElevenLabs / edge-tts)
-│   │   ├── composer/            # Video composition (FFmpeg + PIL)
-│   │   ├── thumbnail.py         # Thumbnail generation
-│   │   ├── reviewer.py          # AI quality review
-│   │   ├── publisher.py         # Multi-platform publish orchestrator
-│   │   ├── notifier.py          # Telegram notifications
-│   │   └── uploaders/
-│   │       ├── youtube_playwright.py
-│   │       ├── tiktok_playwright.py
-│   │       └── facebook_playwright.py
-│   ├── api/v1/              # FastAPI REST endpoints
-│   ├── core/                # Config, DB, LLM manager, browser session
-│   ├── models/              # SQLAlchemy models
-│   ├── tasks/               # Background task runners
-│   └── telegram_bot.py      # Telegram callback handler
-├── dashboard/               # React + MUI + Vite frontend
-│   ├── src/pages/           # Dashboard, Setup, Calendar, Analytics, Connect
-│   └── src/components/      # Reusable UI components
-├── data/
-│   ├── jobs/                # Generated videos, scripts, thumbnails
-│   └── sessions/            # Browser login sessions (git-ignored)
-├── tests/                   # pytest test suite
-├── .env.example             # Configuration template
-└── requirements.txt
-```
-
----
-
 ## 🧪 API Reference
 
 | Group | Endpoints |
@@ -300,15 +320,45 @@ Interactive docs: **http://localhost:8000/docs**
 
 ---
 
-## 🐳 Docker
+## 🐛 Troubleshooting
 
+### "uvicorn: command not found"
+
+**Cause:** Virtual environment not activated.
+
+**Fix:** Either activate the venv first:
 ```bash
-# Full stack
-docker compose up -d
-
-# API only
-docker compose up api -d
+source venv/bin/activate
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
+
+Or use the full path:
+```bash
+./venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+### Dashboard not loading / 404 errors
+
+**Cause:** Dashboard not built or built incorrectly.
+
+**Fix:** Rebuild the dashboard:
+```bash
+cd dashboard
+npm run build
+cd ..
+```
+
+### "API key configuration not found" warning
+
+**Cause:** `.env` file missing or required API keys not set.
+
+**Fix:** Ensure `.env` exists and contains at least `OPENAI_API_KEY` and `PEXELS_API_KEY`.
+
+### FFmpeg errors during video creation
+
+**Cause:** FFmpeg not installed or not in PATH.
+
+**Fix:** Install FFmpeg and verify with `ffmpeg -version`.
 
 ---
 
