@@ -45,6 +45,7 @@ export default function PlatformStep({ data, update }: Props) {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<Record<string, boolean>>({});
   const [loginAlert, setLoginAlert] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   // Fetch browser session status
   const fetchSessionStatus = async () => {
@@ -74,6 +75,7 @@ export default function PlatformStep({ data, update }: Props) {
 
   const handleConnect = async (platformId: string) => {
     setConnecting(platformId);
+    setConnectError(null);
     try {
       const res = await api.post(`/browser-session/${platformId}/connect`);
       if (res.data.status === 'already_connected') {
@@ -82,7 +84,8 @@ export default function PlatformStep({ data, update }: Props) {
         setLoginAlert(platformId);
       }
     } catch (err: any) {
-      alert(err?.response?.data?.detail || 'Failed to open browser');
+      console.error('Connect failed:', err?.response?.data?.detail || err);
+      setConnectError(err?.response?.data?.detail || 'Failed to open browser. Make sure Playwright is installed.');
     }
     setConnecting(null);
   };
@@ -108,6 +111,12 @@ export default function PlatformStep({ data, update }: Props) {
         <Alert severity="info" sx={{ borderRadius: 3 }} onClose={() => setLoginAlert(null)}>
           Chrome đã mở — login <strong>{loginAlert}</strong> rồi đóng cửa sổ Chrome.
           Status sẽ tự cập nhật khi hoàn tất.
+        </Alert>
+      )}
+
+      {connectError && (
+        <Alert severity="error" sx={{ borderRadius: 3 }} onClose={() => setConnectError(null)}>
+          {connectError}
         </Alert>
       )}
 

@@ -35,12 +35,11 @@ RUN pip install --no-cache-dir \
     requests \
     aiohttp \
     openai \
-    pexels-api \
     httpx \
     playwright
 
 # Install Playwright browsers
-RUN playwright install chromium --with-deps
+RUN playwright install --with-deps chromium
 
 # Copy project
 COPY backend/ ./backend/
