@@ -3,7 +3,7 @@
 Open-source, fully automated multi-agent content pipeline:
 **Web content → AI Script → Voiceover → Video → Telegram Approval → Social Media Upload**
 
-[![Python](https://img.shields.io/badge/Python-3.11+-green?style=flat&logo=python)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.9+-green?style=flat&logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-18+-blue?style=flat&logo=react)](https://reactjs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Latest-red?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
 [![MUI](https://img.shields.io/badge/Material_UI-v6-blue?style=flat&logo=mui)](https://mui.com)
@@ -24,7 +24,7 @@ Agent Content Kit tự động biến nội dung web thành video ngắn chuyên
 4. 🎬 **Video** — Render video 9:16 với stock footage (Pexels) + character overlay
 5. ⭐ **Review** — AI chấm điểm chất lượng (auto-approve nếu ≥ 7/10)
 6. 📱 **Telegram** — Gửi notification + nút ✅/❌ để duyệt
-7. 🚀 **Publish** — Upload lên TikTok, YouTube, Facebook (coming soon)
+7. 🚀 **Publish** — Upload lên TikTok, YouTube, Facebook (Playwright browser automation)
 
 ---
 
@@ -375,7 +375,7 @@ Có! Hệ thống dùng LLM abstraction layer. Thêm `AnthropicProvider` vào `b
 <details>
 <summary><b>Q: Upload lên TikTok/YouTube có tự động không?</b></summary>
 
-Chưa. Hiện tại PublisherAgent là stub. Cần OAuth integration cho mỗi platform (planned in roadmap).
+Có! Hệ thống dùng Playwright browser automation. Chỉ cần login 1 lần qua lệnh `python -m backend.core.browser_session login tiktok` hoặc bấm **Connect** trên Dashboard. Sau đó upload hoàn toàn tự động.
 </details>
 
 ---
@@ -388,12 +388,15 @@ Chưa. Hiện tại PublisherAgent là stub. Cần OAuth integration cho mỗi p
 - [x] Telegram approval flow (inline buttons)
 - [x] Material Design 3 dashboard
 - [x] API key validation & guided setup
-- [ ] Real TikTok/YouTube/Facebook upload (OAuth)
-- [ ] Claude/Gemini LLM support
-- [ ] PDF/DOCX as content source
-- [ ] A/B testing for scripts
-- [ ] Analytics dashboard
-- [ ] Scheduled content calendar
+- [x] TikTok/YouTube/Facebook auto-upload (Playwright)
+- [x] Multi-LLM support (OpenAI, Claude, Gemini)
+- [x] PDF/DOCX as content source
+- [x] A/B testing for scripts
+- [x] Analytics dashboard
+- [x] Scheduled content calendar
+- [ ] Instagram Reels upload
+- [ ] Multi-language subtitle generation
+- [ ] Custom video templates
 
 ---
 

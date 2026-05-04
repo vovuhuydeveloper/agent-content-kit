@@ -1,7 +1,9 @@
 # ─── Core Framework ───
 fastapi
 uvicorn[standard]
+python-dotenv
 sqlalchemy
+psycopg2-binary
 alembic
 celery[redis]
 redis

@@ -1,4 +1,22 @@
 services:
+  # PostgreSQL - Database chính (thay SQLite để tránh lock khi multi-container)
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: autoclip
+      POSTGRES_USER: autoclip
+      POSTGRES_PASSWORD: autoclip_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoclip"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   # Redis - Message broker cho Celery
   redis:
     image: redis:7-alpine
@@ -24,15 +42,18 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite:///./data/autoclip.db
+      - DATABASE_URL=postgresql://autoclip:autoclip_secret@postgres:5432/autoclip
+      - CELERY_ALWAYS_EAGER=false
     volumes:
       - ./data:/app/data
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     command: >
       python -m uvicorn backend.main:app 
-      --host 0.0.0.0 --port 8000 --reload
+      --host 0.0.0.0 --port 8000
     restart: unless-stopped
 
   # Celery Worker - Chạy agent pipeline
@@ -44,11 +65,14 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=sqlite:///./data/autoclip.db
+      - DATABASE_URL=postgresql://autoclip:autoclip_secret@postgres:5432/autoclip
+      - CELERY_ALWAYS_EAGER=false
     volumes:
       - ./data:/app/data
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: >
       celery -A backend.core.celery_app worker 
@@ -66,10 +90,13 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://autoclip:autoclip_secret@postgres:5432/autoclip
     volumes:
       - ./data:/app/data
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     command: >
       celery -A backend.core.celery_app beat
@@ -78,3 +105,4 @@ services:
 
 volumes:
   redis_data:
+  postgres_data:

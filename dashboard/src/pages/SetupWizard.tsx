@@ -1,12 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box, Stepper, Step, StepLabel, Button, Typography, Paper,
-  Fade, useTheme, Alert,
+  Fade, useTheme, CircularProgress,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+
 import { useNavigate } from 'react-router-dom';
 
 import SourceStep from '../components/wizard/SourceStep';
@@ -88,6 +88,7 @@ export default function SetupWizard() {
   });
   const [submitting, setSubmitting] = useState(false);
 
+
   // Load saved API keys from backend on mount
   useEffect(() => {
     getConfig().then((cfg) => {
@@ -114,17 +115,13 @@ export default function SetupWizard() {
     }).catch(() => { /* server not ready yet */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [platformWarning, setPlatformWarning] = useState(false);
+
   const navigate = useNavigate();
   const theme = useTheme();
-
-  // No longer need OAuth credential check — using browser session
-  const unconnectedPlatforms: string[] = [];
 
   // Persist step & data to localStorage
   const updateStep = (newStep: number) => {
     setStep(newStep);
-    setPlatformWarning(false);
     localStorage.setItem('wizard_step', String(newStep));
   };
 
@@ -138,19 +135,17 @@ export default function SetupWizard() {
     });
 
   const handleNext = () => {
-    // Platform step (4): warn if platforms selected but not connected
-    if (step === 4 && unconnectedPlatforms.length > 0 && !platformWarning) {
-      setPlatformWarning(true);
-      return;
-    }
-    setPlatformWarning(false);
     updateStep(step + 1);
   };
 
   const canNext = (): boolean => {
     if (step === 0) return !!data.sourceUrl || !!data.sourceDoc;
     if (step === 3) return !!data.openaiKey;
-    if (step === 4) return data.platforms.length > 0;
+    if (step === 4) {
+      // Must have at least one platform selected
+      // Connection is optional — user can connect later from the Connect page
+      return data.platforms.length > 0;
+    }
     return true;
   };
 
@@ -255,38 +250,10 @@ export default function SetupWizard() {
         </Paper>
       </Fade>
 
-      {/* Platform connection warning */}
-      {step === 4 && platformWarning && unconnectedPlatforms.length > 0 && (
-        <Alert
-          severity="warning"
-          icon={<WarningAmberIcon />}
-          sx={{ mt: 2, borderRadius: 3 }}
-          action={
-            <Button
-              color="warning"
-              size="small"
-              onClick={() => { setPlatformWarning(false); updateStep(step + 1); }}
-              sx={{ textTransform: 'none', fontWeight: 600 }}
-            >
-              Continue anyway
-            </Button>
-          }
-        >
-          <Typography variant="body2" fontWeight={600}>
-            {unconnectedPlatforms.length === 1
-              ? `${unconnectedPlatforms[0].charAt(0).toUpperCase() + unconnectedPlatforms[0].slice(1)} is not connected!`
-              : `${unconnectedPlatforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(', ')} are not connected!`}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Videos will be generated and saved locally, but won't auto-upload. You can connect accounts later from the Connect page.
-          </Typography>
-        </Alert>
-      )}
-
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
         <Button
           variant="outlined"
-          onClick={() => { setPlatformWarning(false); updateStep(step - 1); }}
+          onClick={() => updateStep(step - 1)}
           disabled={step === 0}
           startIcon={<ArrowBackIcon />}
           sx={{ borderColor: 'rgba(255,255,255,0.12)' }}
