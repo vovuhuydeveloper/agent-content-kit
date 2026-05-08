@@ -52,9 +52,18 @@ class Pipeline:
             ABTestAgent(config),
         ]
 
+        # AI Video generation (Kling / Runway)
+        # Auto-enable if KLING_API_KEY or RUNWAY_API_KEY is configured
+        import os
+        kling_key = os.getenv("KLING_API_KEY", "")
+        runway_key = os.getenv("RUNWAY_API_KEY", "")
+        if (kling_key and len(kling_key) > 10) or (runway_key and len(runway_key) > 10):
+            from .ai_video import AIVideoAgent
+            agents.append(AIVideoAgent(config))
+            logger.info("🎬 AI Video generation (Kling/Runway) enabled")
+
         # Pixelle-Video AI image generation
         # Auto-enable if PIXELLE_ENABLED=true OR PIXELLE_VIDEO_API_URL is configured
-        import os
         pixelle_enabled = os.getenv("PIXELLE_ENABLED", "false").lower() in (
             "true", "1", "yes"
         )
