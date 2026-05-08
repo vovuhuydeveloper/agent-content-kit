@@ -121,11 +121,12 @@ class TelegramBotHandler:
                 job.status = "approved"
                 db.commit()
 
-                # Trigger publisher via Celery
-                from backend.tasks.agent_tasks import run_publisher
-                run_publisher.delay(job_id)
-
-                self._send(chat_id, f"🚀 Upload đã bắt đầu cho job <code>{job_id}</code>")
+                # Trigger publisher in background thread (no Redis needed)
+                threading.Thread(
+                    target=self._run_publisher_direct,
+                    args=(job_id, chat_id),
+                    daemon=True,
+                ).start()
             else:
                 self._send(chat_id, f"❌ Job {job_id} không tìm thấy")
             db.close()
@@ -170,6 +171,71 @@ class TelegramBotHandler:
                      json={"chat_id": chat_id, "message_id": message_id,
                             "text": text, "parse_mode": "HTML"},
                      timeout=10)
+
+    def _run_publisher_direct(self, job_id: str, chat_id: int):
+        """Run PublisherAgent directly in this thread (no Celery/Redis needed)"""
+        from datetime import datetime, timezone
+
+        from backend.agents.pipeline import Pipeline
+        from backend.core.database import SessionLocal
+        from backend.models.content_job import ContentJob
+
+        db = SessionLocal()
+        try:
+            job = db.query(ContentJob).filter(ContentJob.id == job_id).first()
+            if not job:
+                self._send(chat_id, f"❌ Job {job_id} không tìm thấy")
+                return
+
+            job.status = "publishing"
+            db.commit()
+
+            # Resume pipeline from PublisherAgent
+            pipeline = Pipeline.default()
+            job_input = {
+                "source_url": job.source_url,
+                "language": job.language,
+                "video_count": job.video_count,
+                "platforms": job.platforms or ["tiktok"],
+                "niche": job.niche or "",
+                "competitor_urls": job.competitor_urls or [],
+                "character_images": job.character_images or [],
+                "job_id": job_id,
+            }
+
+            result = pipeline.run(job_input, resume_from="PublisherAgent")
+
+            # Update job
+            job.status = result.get("pipeline_status", "completed")
+            job.published_count = result.get("published_count", 0)
+            job.completed_at = datetime.now(timezone.utc)
+
+            # Merge pipeline result
+            existing_result = job.pipeline_result or {}
+            existing_result["publications"] = result.get("publications", [])
+            job.pipeline_result = existing_result
+            db.commit()
+
+            logger.info(f"✅ Publishing completed for job {job_id}")
+            self._send(chat_id,
+                       f"✅ <b>Upload hoàn tất!</b>\n"
+                       f"🆔 <code>{job_id}</code>\n"
+                       f"📹 Published: {result.get('published_count', 0)} videos")
+
+        except Exception as e:
+            logger.error(f"❌ Publishing failed for job {job_id}: {e}")
+            try:
+                db.rollback()
+                job = db.query(ContentJob).filter(ContentJob.id == job_id).first()
+                if job:
+                    job.status = "publish_failed"
+                    job.error_message = str(e)[:500]
+                    db.commit()
+            except Exception:
+                db.rollback()
+            self._send(chat_id, f"❌ Upload thất bại: {str(e)[:200]}")
+        finally:
+            db.close()
 
     def _get_status_summary(self) -> str:
         try:

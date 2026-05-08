@@ -103,6 +103,29 @@ services:
       --loglevel=info
     restart: unless-stopped
 
+  # Pixelle-Video — AI image/video generation engine (optional)
+  # Only starts when explicitly requested: docker compose --profile pixelle up
+  # Or: docker compose -f docker-compose.agents.yml up pixelle-video
+  pixelle-video:
+    image: ghcr.io/aidc-ai/pixelle-video:latest
+    profiles:
+      - pixelle
+    ports:
+      - "8085:8000"
+    environment:
+      - PIXELLE_API_HOST=0.0.0.0
+      - PIXELLE_API_PORT=8000
+    volumes:
+      - ./data/pixelle_config:/app/config
+      - ./data/pixelle_output:/app/output
+      - ./data/jobs:/app/shared_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   redis_data:
   postgres_data:

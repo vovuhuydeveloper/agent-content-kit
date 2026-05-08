@@ -9,6 +9,10 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Initialize Celery app early — this sets the "current app" for @shared_task decorators
+# so tasks are bound to the correct Redis broker instead of defaulting to amqp://localhost
+import backend.core.celery_app  # noqa
+
 # Import configuration
 from .core.config import get_api_key, get_logging_config
 

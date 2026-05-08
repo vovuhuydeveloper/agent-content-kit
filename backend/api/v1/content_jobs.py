@@ -235,7 +235,7 @@ def approve_job(job_id: str, db: Session = Depends(get_db)):
     job.status = "approved"
     db.commit()
 
-    # Trigger publisher
+    # Trigger publisher (uses Celery if available, else threading fallback)
     from backend.tasks.agent_tasks import run_publisher
     run_publisher.delay(job_id)
 
@@ -289,8 +289,11 @@ def list_job_files(job_id: str):
 
 
 @router.get("/{job_id}/files/{file_path:path}", summary="Serve a job output file")
-def serve_job_file(job_id: str, file_path: str):
-    """Serve a specific file from job output directory"""
+def serve_job_file(job_id: str, file_path: str, download: bool = False):
+    """Serve a specific file from job output directory.
+
+    Pass ?download=1 to trigger browser download instead of inline playback.
+    """
     from pathlib import Path
 
     from fastapi.responses import FileResponse
@@ -312,6 +315,14 @@ def serve_job_file(job_id: str, file_path: str):
         ".json": "application/json",
     }
     media_type = media_types.get(ext, "application/octet-stream")
+
+    if download:
+        return FileResponse(
+            str(safe_path),
+            media_type=media_type,
+            filename=safe_path.name,
+            headers={"Content-Disposition": f'attachment; filename="{safe_path.name}"'},
+        )
 
     return FileResponse(str(safe_path), media_type=media_type)
 
