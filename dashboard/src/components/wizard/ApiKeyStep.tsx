@@ -71,6 +71,49 @@ const KEY_CONFIGS: KeyConfig[] = [
       'Not required — system uses free edge-tts by default',
     ],
   },
+  {
+    field: 'klingKey',
+    label: 'Kling AI (Video generation)',
+    required: false,
+    signupUrl: 'https://klingai.com',
+    signupLabel: 'Sign up at Kling AI',
+    placeholder: 'kl-...',
+    guideSteps: [
+      '1. Go to klingai.com → sign up',
+      '2. Go to API Keys section',
+      '3. Create a new API key',
+      '4. Copy → Paste here',
+      'Enables AI-generated video clips (not just images)',
+    ],
+  },
+  {
+    field: 'runwayKey',
+    label: 'RunwayML (Video generation)',
+    required: false,
+    signupUrl: 'https://runwayml.com',
+    signupLabel: 'Sign up at RunwayML',
+    placeholder: 'key_...',
+    guideSteps: [
+      '1. Go to runwayml.com → sign up',
+      '2. Go to Account → API Keys',
+      '3. Create API Key + Secret',
+      '4. Paste both key and secret below',
+      'Alternative to Kling for AI video clips',
+    ],
+  },
+  {
+    field: 'runwaySecret',
+    label: 'RunwayML (API Secret)',
+    required: false,
+    signupUrl: 'https://runwayml.com',
+    signupLabel: 'Get secret at RunwayML',
+    placeholder: 'secret_...',
+    guideSteps: [
+      '1. Generated alongside the API key',
+      '2. Keep this secret — do not share',
+      '3. Both key + secret are required for Runway',
+    ],
+  },
 ];
 
 export default function ApiKeyStep({ data, update }: Props) {

@@ -42,6 +42,9 @@ export interface WizardData {
   openaiKey: string;
   pexelsKey: string;
   elevenlabsKey: string;
+  klingKey: string;
+  runwayKey: string;
+  runwaySecret: string;
   platforms: string[];
   oauthCreds: Record<string, { clientId: string; clientSecret: string }>;
   telegramToken: string;
@@ -64,6 +67,9 @@ const initialData: WizardData = {
   openaiKey: '',
   pexelsKey: '',
   elevenlabsKey: '',
+  klingKey: '',
+  runwayKey: '',
+  runwaySecret: '',
   platforms: ['tiktok'],
   oauthCreds: {},
   telegramToken: '',
@@ -102,6 +108,15 @@ export default function SetupWizard() {
       }
       if (!data.elevenlabsKey && cfg.elevenlabs_api_key && !cfg.elevenlabs_api_key.includes('****')) {
         updates.elevenlabsKey = cfg.elevenlabs_api_key;
+      }
+      if (!data.klingKey && cfg.kling_api_key && !cfg.kling_api_key.includes('****')) {
+        updates.klingKey = cfg.kling_api_key;
+      }
+      if (!data.runwayKey && cfg.runway_api_key && !cfg.runway_api_key.includes('****')) {
+        updates.runwayKey = cfg.runway_api_key;
+      }
+      if (!data.runwaySecret && cfg.runway_api_secret && !cfg.runway_api_secret.includes('****')) {
+        updates.runwaySecret = cfg.runway_api_secret;
       }
       if (!data.telegramToken && cfg.telegram_bot_token) {
         updates.telegramToken = cfg.telegram_bot_token;
@@ -157,6 +172,9 @@ export default function SetupWizard() {
       if (data.openaiKey) configPayload.openai_api_key = data.openaiKey;
       if (data.pexelsKey) configPayload.pexels_api_key = data.pexelsKey;
       if (data.elevenlabsKey) configPayload.elevenlabs_api_key = data.elevenlabsKey;
+      if (data.klingKey) configPayload.kling_api_key = data.klingKey;
+      if (data.runwayKey) configPayload.runway_api_key = data.runwayKey;
+      if (data.runwaySecret) configPayload.runway_api_secret = data.runwaySecret;
       if (data.telegramToken) configPayload.telegram_bot_token = data.telegramToken;
       if (data.telegramChatId) configPayload.telegram_chat_id = data.telegramChatId;
 
