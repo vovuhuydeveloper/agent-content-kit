@@ -39,6 +39,7 @@ class Pipeline:
         from .fetcher import ContentFetcherAgent
         from .publisher import PublisherAgent
         from .reviewer import QualityReviewAgent
+        from .video_quality import VideoQualityAgent
         from .scriptwriter import ScriptWriterAgent
         from .thumbnail import ThumbnailAgent
         from .trend_scraper import TrendScraperAgent
@@ -85,6 +86,7 @@ class Pipeline:
         agents.extend([
             VoiceGeneratorAgent(config),
             VideoComposerAgent(config),
+            VideoQualityAgent(config),       # AI quality scoring + regeneration trigger
             ThumbnailAgent(config),
             QualityReviewAgent(config),
             PublisherAgent(config),
