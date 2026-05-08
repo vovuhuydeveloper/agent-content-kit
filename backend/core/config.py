@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     pixelle_image_prompt_prefix: str = Field(default='High quality, cinematic style illustration', validation_alias=AliasChoices('PIXELLE_IMAGE_PROMPT_PREFIX'))
     pixelle_request_timeout: int = Field(default=120, validation_alias=AliasChoices('PIXELLE_REQUEST_TIMEOUT'))
 
+    # AI Video Generation (Kling / Runway)
+    kling_api_key: str = Field(default='', validation_alias=AliasChoices('KLING_API_KEY'))
+    kling_model: str = Field(default='kling-v1', validation_alias=AliasChoices('KLING_MODEL'))
+    runway_api_key: str = Field(default='', validation_alias=AliasChoices('RUNWAY_API_KEY'))
+    runway_api_secret: str = Field(default='', validation_alias=AliasChoices('RUNWAY_API_SECRET'))
+    runway_model: str = Field(default='gen3', validation_alias=AliasChoices('RUNWAY_MODEL'))
+
 # Global configuration instance
 settings = Settings()
 

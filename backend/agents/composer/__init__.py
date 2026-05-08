@@ -63,6 +63,14 @@ class VideoComposerAgent(BaseAgent):
         job_dir = Path(context["job_dir"])
         niche = context.get("niche", "")
 
+        # AI-generated video clips from Kling/Runway (if available)
+        ai_videos = context.get("ai_videos", {})
+        ai_videos_available = context.get("ai_videos_available", False)
+        if ai_videos_available:
+            logger.info(
+                f"🎬 Using {context.get('ai_videos_count', 0)} AI-generated video clips"
+            )
+
         # AI-generated images from Pixelle-Video (if available)
         ai_images = context.get("ai_images", {})
         ai_images_available = context.get("ai_images_available", False)
@@ -110,6 +118,8 @@ class VideoComposerAgent(BaseAgent):
             voice_path = Path(voice["path"])
             output_path = video_dir / f"video_{script_id}.mp4"
 
+            # Get AI videos for this script (if available)
+            script_ai_videos = ai_videos.get(str(script_id), []) if ai_videos_available else []
             # Get AI images for this script (if available)
             script_ai_images = ai_images.get(str(script_id), []) if ai_images_available else []
 
@@ -121,7 +131,7 @@ class VideoComposerAgent(BaseAgent):
                 success = self._render(
                     script, voice_path, char_overlay, output_path,
                     w, h, audio_dur, orientation, job_dir, pexels_key,
-                    script_ai_images=script_ai_images,
+                    script_ai_videos=script_ai_videos, script_ai_images=script_ai_images,
                     niche=niche,
                 )
 
@@ -131,7 +141,7 @@ class VideoComposerAgent(BaseAgent):
                         "script_id": script_id, "path": str(output_path),
                         "title": script.get("title", ""), "file_size": size,
                         "orientation": orientation,
-                        "used_ai_images": len(script_ai_images) > 0,
+                        "used_ai_videos": len(script_ai_videos) > 0, "used_ai_images": len(script_ai_images) > 0,
                     })
                     logger.info(f"Video {script_id}: {output_path.name} ({size/1024/1024:.1f}MB)")
             except Exception as e:
@@ -258,8 +268,15 @@ class VideoComposerAgent(BaseAgent):
 
     def _render(self, script, voice_path, char_overlay, output_path,
                 w, h, audio_dur, orientation, job_dir, pexels_key,
-                script_ai_images=None, niche=""):
+                script_ai_videos=None, script_ai_images=None, niche=""):
         segments = self._build_segments(script, audio_dur)
+
+        # Build AI video lookup: map segment index to video path
+        ai_video_map = {}
+        if script_ai_videos:
+            ai_video_map = self._build_ai_video_map(segments, script_ai_videos)
+            if ai_video_map:
+                logger.info(f"🎬 {len(ai_video_map)}/{len(segments)} segments have AI video clips")
 
         # Build AI image lookup: map segment index to image path
         ai_image_map = {}
@@ -275,7 +292,8 @@ class VideoComposerAgent(BaseAgent):
 
         segments_needing_stock = [
             (idx, seg) for idx, seg in enumerate(segments)
-            if idx not in ai_image_map
+            if idx not in ai_video_map  # AI video trumps stock
+            and idx not in ai_image_map
         ]
 
         if pexels_key and segments_needing_stock:
@@ -300,13 +318,29 @@ class VideoComposerAgent(BaseAgent):
         for idx, seg in enumerate(segments):
             seg_out = temp_dir / f"seg_{idx:03d}.mp4"
             dur = seg["duration"]
+            ai_clip = ai_video_map.get(idx)
             ai_img = ai_image_map.get(idx)
             stock = stock_clips.get(idx)
 
             ok = False
 
+            # Priority 0: AI-generated video clip (from Kling/Runway)
+            if ai_clip and Path(ai_clip).exists():
+                caption = create_caption_overlay(
+                    seg["text"], w, h, seg["type"],
+                    seg.get("num", 0), seg.get("total", 0),
+                )
+                cap_path = temp_dir / f"cap_{idx:03d}.png"
+                caption.save(str(cap_path), "PNG")
+                # Use AI video clip as background with caption + character overlay
+                ok = create_stock_segment(
+                    ai_clip, cap_path, char_overlay,
+                    seg_out, w, h, dur,
+                )
+                logger.debug(f"🎬 AI video clip used for segment {idx}")
+
             # Priority 1: AI-generated image (from Pixelle-Video)
-            if ai_img and Path(ai_img).exists():
+            elif ai_img and Path(ai_img).exists():
                 caption = create_caption_overlay(
                     seg["text"], w, h, seg["type"],
                     seg.get("num", 0), seg.get("total", 0),
@@ -367,6 +401,43 @@ class VideoComposerAgent(BaseAgent):
         temp_dir.rmdir()
 
         return result
+
+    def _build_ai_video_map(self, segments: list, ai_videos: list) -> Dict[int, str]:
+        """
+        Map segment indices to AI video clip paths.
+        AI videos match by type and scene_id, same as images.
+        """
+        vid_map = {}
+        hook_vid = None
+        cta_vid = None
+        scene_vids = {}
+
+        for vid_info in ai_videos:
+            vid_type = vid_info.get("type", "scene")
+            path = vid_info.get("path", "")
+            if not path or not Path(path).exists():
+                continue
+            if vid_type == "hook":
+                hook_vid = path
+            elif vid_type == "cta":
+                cta_vid = path
+            else:
+                scene_id = vid_info.get("scene_id", 0)
+                scene_vids[scene_id] = path
+
+        scene_counter = 0
+        for idx, seg in enumerate(segments):
+            seg_type = seg.get("type", "scene")
+            if seg_type == "hook" and hook_vid:
+                vid_map[idx] = hook_vid
+            elif seg_type == "cta" and cta_vid:
+                vid_map[idx] = cta_vid
+            elif seg_type == "scene":
+                scene_counter += 1
+                if scene_counter in scene_vids:
+                    vid_map[idx] = scene_vids[scene_counter]
+
+        return vid_map
 
     def _build_ai_image_map(self, segments: list, ai_images: list) -> Dict[int, str]:
         """
