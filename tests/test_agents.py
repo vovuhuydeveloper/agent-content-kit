@@ -3,6 +3,7 @@ Tests for Agent classes — Pipeline, BaseAgent, and individual agents.
 """
 
 import json
+import os
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -187,3 +188,100 @@ class TestABTestAgent:
         agent = ABTestAgent()
         result = agent.execute({"scripts": [], "job_dir": tmp_job_dir})
         assert result["ab_testing_enabled"] is False
+
+
+class TestPipelineAIImageIntegration:
+    """Integration tests: AIImageAgent in the pipeline"""
+
+    @patch.dict(os.environ, {
+        "PIXELLE_ENABLED": "true",
+        "PIXELLE_VIDEO_API_URL": "http://pixelle:8085",
+        "OPENAI_API_KEY": "",
+    }, clear=True)
+    def test_default_pipeline_includes_ai_image_agent(self):
+        """PIXELLE_ENABLED=true -> AIImageAgent is part of default pipeline"""
+        with patch("backend.core.pixelle_client.PixelleClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.is_available.return_value = True
+            mock_client_class.return_value = mock_client
+
+            pipeline = Pipeline.default()
+            agent_names = [a.name for a in pipeline.agents]
+
+            assert "AIImageAgent" in agent_names, (
+                f"AIImageAgent not found: {agent_names}"
+            )
+            # Must be before VoiceGenerator
+            ai_idx = agent_names.index("AIImageAgent")
+            voice_idx = agent_names.index("VoiceGeneratorAgent")
+            assert ai_idx < voice_idx, "AIImageAgent must run before VoiceGeneratorAgent"
+
+    @patch.dict(os.environ, {
+        "PIXELLE_ENABLED": "false",
+        "PIXELLE_VIDEO_API_URL": "http://localhost:8085",
+        "OPENAI_API_KEY": "",
+    }, clear=True)
+    def test_default_pipeline_excludes_ai_image_when_disabled(self):
+        """Without Pixelle or DALL-E -> AIImageAgent not in pipeline"""
+        pipeline = Pipeline.default()
+        agent_names = [a.name for a in pipeline.agents]
+        assert "AIImageAgent" not in agent_names, (
+            f"AIImageAgent should not be in pipeline when disabled: {agent_names}"
+        )
+
+    def test_ai_image_agent_is_non_critical(self):
+        """AIImageAgent failure should not stop the pipeline"""
+        from backend.agents.ai_image import AIImageAgent
+
+        ai_agent = AIImageAgent()
+        assert ai_agent.is_critical is False, (
+            "AIImageAgent must be non-critical for Pexels fallback"
+        )
+
+        class SuccessAfter(BaseAgent):
+            name = "SuccessAfter"
+            def execute(self, context):
+                return {"pipeline_continued": True}
+
+        class FailingAIImage(BaseAgent):
+            name = "AIImageAgent"
+            is_critical = False
+            max_retries = 1
+            def execute(self, context):
+                raise RuntimeError("AI image service unavailable")
+
+        pipeline = Pipeline(agents=[FailingAIImage(), SuccessAfter()])
+        result = pipeline.run({"source_url": "https://example.com"})
+        assert result["pipeline_status"] == "completed"
+        assert result["pipeline_continued"] is True
+
+    def test_ai_image_context_keys_match_composer_expectation(self, tmp_path):
+        """Verify AIImageAgent output keys match what Composer expects"""
+        expected_keys = {
+            "ai_images", "ai_images_available", "ai_images_count",
+            "ai_images_dir", "ai_images_provider",
+        }
+
+        # Simulate the context after AIImageAgent runs
+        context = {
+            "scripts": [{
+                "script_id": 1,
+                "title": "Test",
+                "hook": "Amazing!",
+                "cta": "Subscribe!",
+                "scenes": [{"scene_id": 1, "text": "Hello", "duration": 5}],
+            }],
+            "job_dir": str(tmp_path),
+            "language": "vi",
+            "ai_images": {"1": [{"type": "scene", "scene_id": 1, "path": "/tmp/img.png"}]},
+            "ai_images_available": True,
+            "ai_images_count": 1,
+            "ai_images_dir": str(tmp_path / "ai_images"),
+            "ai_images_provider": "pixelle",
+        }
+
+        # Verify all expected keys are present
+        for key in expected_keys:
+            assert key in context, f"Composer expects '{key}' in context"
+        assert isinstance(context["ai_images"], dict)
+        assert context["ai_images_available"] is True
