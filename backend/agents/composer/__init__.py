@@ -9,15 +9,16 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from ..base import BaseAgent
 from .ffmpeg import (
-    concat_with_audio,
+    concat_with_xfade,
     create_solid_segment,
     create_stock_segment,
     get_audio_duration,
     image_to_video,
+    image_to_video_kenburns,
 )
 from .renderer import create_caption_overlay, create_gradient_frame
 from .stock_service import get_stock_for_scene
@@ -60,7 +61,13 @@ class VideoComposerAgent(BaseAgent):
         voice_files = context["voice_files"]
         character_images = context.get("character_images", [])
         job_dir = Path(context["job_dir"])
+        niche = context.get("niche", "")
 
+        # AI-generated images from Pixelle-Video (if available)
+        ai_images = context.get("ai_images", {})
+        ai_images_available = context.get("ai_images_available", False)
+        if ai_images_available:
+            logger.info(f"🎨 Using {context.get('ai_images_count', 0)} AI-generated images")
 
         video_dir = job_dir / "videos"
         video_dir.mkdir(exist_ok=True)
@@ -103,6 +110,9 @@ class VideoComposerAgent(BaseAgent):
             voice_path = Path(voice["path"])
             output_path = video_dir / f"video_{script_id}.mp4"
 
+            # Get AI images for this script (if available)
+            script_ai_images = ai_images.get(str(script_id), []) if ai_images_available else []
+
             try:
                 audio_dur = get_audio_duration(voice_path)
                 char_image = self._pick_character(character_images)
@@ -111,6 +121,8 @@ class VideoComposerAgent(BaseAgent):
                 success = self._render(
                     script, voice_path, char_overlay, output_path,
                     w, h, audio_dur, orientation, job_dir, pexels_key,
+                    script_ai_images=script_ai_images,
+                    niche=niche,
                 )
 
                 if success and output_path.exists():
@@ -119,6 +131,7 @@ class VideoComposerAgent(BaseAgent):
                         "script_id": script_id, "path": str(output_path),
                         "title": script.get("title", ""), "file_size": size,
                         "orientation": orientation,
+                        "used_ai_images": len(script_ai_images) > 0,
                     })
                     logger.info(f"Video {script_id}: {output_path.name} ({size/1024/1024:.1f}MB)")
             except Exception as e:
@@ -148,16 +161,32 @@ class VideoComposerAgent(BaseAgent):
         return images[0] if images else None
 
     def _prepare_overlay(self, char_image: Optional[str], w: int, h: int, job_dir: Path) -> Optional[str]:
+        """
+        Prepare logo/character overlay with automatic background removal.
+
+        Positions logo at top-center with proper sizing — never overlaps captions.
+        Auto-removes solid backgrounds (white, near-white, uniform colors).
+        """
         if not char_image or not os.path.exists(char_image):
             return None
         try:
             img = Image.open(char_image).convert("RGBA")
-            char_w = int(w * 0.32)
-            char_h = int(char_w * img.height / img.width)
-            img = img.resize((char_w, char_h), Image.LANCZOS)
+
+            # Auto-remove background if image has solid/uniform background
+            img = self._remove_background(img)
+
+            # Size: 15-18% of video width, cap at 180px
+            max_logo_w = min(int(w * 0.18), 180)
+            ratio = max_logo_w / img.width
+            logo_h = int(img.height * ratio)
+            img = img.resize((max_logo_w, logo_h), Image.LANCZOS)
+
+            # Position: top-center with 5% padding — never overlaps captions
+            logo_x = (w - max_logo_w) // 2
+            logo_y = int(h * 0.05)
 
             overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-            overlay.paste(img, (w - char_w - 20, h - char_h - 200), img)
+            overlay.paste(img, (logo_x, logo_y), img)
 
             path = job_dir / "char_overlay.png"
             overlay.save(str(path), "PNG")
@@ -166,39 +195,133 @@ class VideoComposerAgent(BaseAgent):
             logger.warning(f"Character overlay failed: {e}")
             return None
 
+    def _remove_background(self, img: Image.Image) -> Image.Image:
+        """
+        Auto-remove solid/uniform background from logo images.
+
+        Strategy:
+          1. Sample corner pixels to detect background color
+          2. Make pixels matching the background transparent
+          3. Add slight feathering at edges for smooth blend
+        """
+        w, h = img.size
+        pixels = img.load()
+
+        # Sample 4 corners to detect background color
+        corners = [
+            pixels[0, 0],
+            pixels[w - 1, 0],
+            pixels[0, h - 1],
+            pixels[w - 1, h - 1],
+        ]
+
+        # Check if corners are similar (uniform background)
+        def _color_dist(a, b):
+            return sum(abs(a[i] - b[i]) for i in range(3))
+
+        all_similar = all(
+            _color_dist(corners[0], c) < 60 for c in corners[1:]
+        )
+
+        if not all_similar:
+            # Already has transparency or complex background — skip
+            # But still try: make near-white pixels transparent
+            bg_r, bg_g, bg_b = corners[0][:3]
+        else:
+            bg_r, bg_g, bg_b = corners[0][:3]
+
+        # Create new RGBA image with background removed
+        new_img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        new_pixels = new_img.load()
+
+        threshold = 80  # Color distance threshold for background
+
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = pixels[x, y]
+                dist = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
+
+                if dist < threshold:
+                    # Background pixel → make fully transparent
+                    new_pixels[x, y] = (r, g, b, 0)
+                elif dist < threshold + 40:
+                    # Edge pixel → semi-transparent for smooth blend
+                    alpha = int(255 * (dist - threshold) / 40)
+                    new_pixels[x, y] = (r, g, b, alpha)
+                else:
+                    # Foreground pixel → keep as-is
+                    new_pixels[x, y] = (r, g, b, a)
+
+        return new_img
+
     # ── Main render ──
 
     def _render(self, script, voice_path, char_overlay, output_path,
-                w, h, audio_dur, orientation, job_dir, pexels_key):
+                w, h, audio_dur, orientation, job_dir, pexels_key,
+                script_ai_images=None, niche=""):
         segments = self._build_segments(script, audio_dur)
 
-        # Download stock footage
+        # Build AI image lookup: map segment index to image path
+        ai_image_map = {}
+        if script_ai_images:
+            ai_image_map = self._build_ai_image_map(segments, script_ai_images)
+            if ai_image_map:
+                logger.info(f"🎨 {len(ai_image_map)}/{len(segments)} segments have AI images")
+
+        # Download stock footage (only for segments without AI images)
         stock_dir = job_dir / "stock_clips"
         stock_dir.mkdir(exist_ok=True)
         stock_clips = {}
 
-        if pexels_key:
-            logger.info("Downloading stock footage from Pexels...")
-            for idx, seg in enumerate(segments):
+        segments_needing_stock = [
+            (idx, seg) for idx, seg in enumerate(segments)
+            if idx not in ai_image_map
+        ]
+
+        if pexels_key and segments_needing_stock:
+            logger.info(f"Downloading stock footage for {len(segments_needing_stock)} segments...")
+            for idx, seg in segments_needing_stock:
                 clip = get_stock_for_scene(
                     seg["text"], seg.get("visual", ""), idx,
                     stock_dir, orientation, pexels_key,
+                    target_duration=seg.get("duration"),
+                    niche=niche,
                 )
                 if clip:
                     stock_clips[idx] = clip
-            logger.info(f"Downloaded {len(stock_clips)}/{len(segments)} stock clips")
+            logger.info(f"Downloaded {len(stock_clips)}/{len(segments_needing_stock)} stock clips")
 
         # Render each segment
         temp_dir = job_dir / "temp_render"
         temp_dir.mkdir(exist_ok=True)
         video_segments = []
+        segment_durations = []
 
         for idx, seg in enumerate(segments):
             seg_out = temp_dir / f"seg_{idx:03d}.mp4"
             dur = seg["duration"]
+            ai_img = ai_image_map.get(idx)
             stock = stock_clips.get(idx)
 
-            if stock and stock.exists():
+            ok = False
+
+            # Priority 1: AI-generated image (from Pixelle-Video)
+            if ai_img and Path(ai_img).exists():
+                caption = create_caption_overlay(
+                    seg["text"], w, h, seg["type"],
+                    seg.get("num", 0), seg.get("total", 0),
+                )
+                cap_path = temp_dir / f"cap_{idx:03d}.png"
+                caption.save(str(cap_path), "PNG")
+
+                # Compose AI image as background with caption overlay
+                ai_bg = self._compose_ai_background(ai_img, cap_path, char_overlay, w, h)
+                ai_bg_path = temp_dir / f"ai_frame_{idx:03d}.png"
+                ai_bg.save(str(ai_bg_path), "PNG")
+                ok = image_to_video_kenburns(ai_bg_path, seg_out, dur, w, h)
+
+            # Priority 2: Pexels stock footage
+            elif stock and stock.exists():
                 caption = create_caption_overlay(
                     seg["text"], w, h, seg["type"],
                     seg.get("num", 0), seg.get("total", 0),
@@ -206,10 +329,11 @@ class VideoComposerAgent(BaseAgent):
                 cap_path = temp_dir / f"cap_{idx:03d}.png"
                 caption.save(str(cap_path), "PNG")
                 ok = create_stock_segment(stock, cap_path, char_overlay, seg_out, w, h, dur)
-            else:
+
+            # Priority 3: PIL gradient fallback
+            if not ok:
                 scene_colors = _get_scene_colors(script)
                 bg = scene_colors[idx % len(scene_colors)]
-                # Get accent color for decorations
                 cs = script.get("color_scheme", {})
                 accent = tuple(cs.get("accent", [124, 77, 255])[:3])
                 frame = create_gradient_frame(
@@ -223,14 +347,19 @@ class VideoComposerAgent(BaseAgent):
 
             if ok and seg_out.exists():
                 video_segments.append(str(seg_out))
+                segment_durations.append(dur)
             else:
                 if create_solid_segment(seg_out, w, h, dur):
                     video_segments.append(str(seg_out))
+                    segment_durations.append(dur)
 
         if not video_segments:
             return False
 
-        result = concat_with_audio(video_segments, voice_path, output_path, temp_dir)
+        result = concat_with_xfade(
+            video_segments, segment_durations, voice_path,
+            output_path, temp_dir,
+        )
 
         # Cleanup
         for f in temp_dir.glob("*"):
@@ -238,6 +367,86 @@ class VideoComposerAgent(BaseAgent):
         temp_dir.rmdir()
 
         return result
+
+    def _build_ai_image_map(self, segments: list, ai_images: list) -> Dict[int, str]:
+        """
+        Map segment indices to AI image paths.
+        AI images have types: hook, scene, cta — match them to segments.
+        """
+        img_map = {}
+
+        # Build lookup by type and scene_id
+        hook_img = None
+        cta_img = None
+        scene_imgs = {}  # scene_id -> path
+
+        for img_info in ai_images:
+            img_type = img_info.get("type", "scene")
+            path = img_info.get("path", "")
+            if not path or not Path(path).exists():
+                continue
+            if img_type == "hook":
+                hook_img = path
+            elif img_type == "cta":
+                cta_img = path
+            else:
+                scene_id = img_info.get("scene_id", 0)
+                scene_imgs[scene_id] = path
+
+        scene_counter = 0
+        for idx, seg in enumerate(segments):
+            seg_type = seg.get("type", "scene")
+            if seg_type == "hook" and hook_img:
+                img_map[idx] = hook_img
+            elif seg_type == "cta" and cta_img:
+                img_map[idx] = cta_img
+            elif seg_type == "scene":
+                scene_counter += 1
+                if scene_counter in scene_imgs:
+                    img_map[idx] = scene_imgs[scene_counter]
+
+        return img_map
+
+    def _compose_ai_background(
+        self, ai_img_path: str, caption_path: str,
+        char_overlay: Optional[str], w: int, h: int
+    ) -> Image.Image:
+        """
+        Compose an AI image as background with caption and character overlays.
+        Uses light vignette instead of heavy dark overlay — lets AI image breathe.
+        """
+        # Load and resize AI image to fill frame
+        bg = Image.open(ai_img_path).convert("RGBA")
+        bg = bg.resize((w, h), Image.LANCZOS)
+
+        # Subtle bottom gradient only (for text readability)
+        # Much lighter than full-frame dark overlay
+        gradient = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        grad_draw = ImageDraw.Draw(gradient)
+        # Bottom 40% gets a gentle gradient
+        grad_start = int(h * 0.6)
+        for y in range(grad_start, h):
+            progress = (y - grad_start) / (h - grad_start)
+            alpha = int(100 * progress)  # max 100 alpha, very gentle
+            grad_draw.line([(0, y), (w, y)], fill=(0, 0, 0, alpha))
+        # Top 15% gets a subtle gradient for top UI elements
+        for y in range(0, int(h * 0.15)):
+            progress = 1 - (y / (h * 0.15))
+            alpha = int(60 * progress)
+            grad_draw.line([(0, y), (w, y)], fill=(0, 0, 0, alpha))
+        bg = Image.alpha_composite(bg, gradient)
+
+        # Add caption
+        if caption_path and Path(caption_path).exists():
+            caption = Image.open(str(caption_path)).convert("RGBA")
+            bg = Image.alpha_composite(bg, caption)
+
+        # Add character
+        if char_overlay and Path(char_overlay).exists():
+            char = Image.open(char_overlay).convert("RGBA")
+            bg = Image.alpha_composite(bg, char)
+
+        return bg.convert("RGB")
 
     def _build_segments(self, script, audio_dur):
         segments = []

@@ -1,56 +1,88 @@
 """
-Text Renderer — PIL-based text/caption rendering for Vietnamese support.
+Text Renderer — Premium TikTok/Shorts-style caption overlays.
+
+Design philosophy (based on trending short-form video styles):
+  - Clean subtitle bar at bottom center (not full-width dump)
+  - Bold Montserrat/BeVietnam font with text stroke for readability
+  - Subtle glass-morphism text container (rounded, blurred BG)
+  - Minimal progress indicator (dot-based, not progress bar)
+  - No bulky logos — clean watermark only
+  - AI background images should breathe — minimal overlays
 """
 
 import logging
 import os
 import textwrap
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 logger = logging.getLogger("agent.composer.renderer")
 
 # Project root for bundled fonts
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# Font search paths — priority order (bundled Vietnamese font first)
-FONT_PATHS = [
-    # Bundled Vietnamese font (Google Fonts — Be Vietnam Pro Bold)
+# Font search paths — priority order
+FONT_PATHS_BOLD = [
+    str(_PROJECT_ROOT / "data" / "fonts" / "Montserrat-ExtraBold.ttf"),
+    str(_PROJECT_ROOT / "data" / "fonts" / "Montserrat-Bold.ttf"),
     str(_PROJECT_ROOT / "data" / "fonts" / "BeVietnamPro-Bold.ttf"),
-    # macOS system fonts
     "/Library/Fonts/Arial Unicode.ttf",
-    "/System/Library/Fonts/Helvetica.ttc",
-    "/System/Library/Fonts/ArialHB.ttc",
-    "/System/Library/Fonts/Avenir Next.ttc",
-    "/System/Library/Fonts/SFNS.ttf",
-    # Linux system fonts
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+]
+
+FONT_PATHS_REGULAR = [
+    str(_PROJECT_ROOT / "data" / "fonts" / "Montserrat-SemiBold.ttf"),
+    str(_PROJECT_ROOT / "data" / "fonts" / "BeVietnamPro-Bold.ttf"),
+    "/System/Library/Fonts/Helvetica.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
 ]
 
 _font_cache: dict = {}
 
 
-def get_font(size: int) -> ImageFont.FreeTypeFont:
+def get_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
     """Get a font that supports Vietnamese diacritics"""
-    if size in _font_cache:
-        return _font_cache[size]
+    key = (size, bold)
+    if key in _font_cache:
+        return _font_cache[key]
 
-    for fp in FONT_PATHS:
+    paths = FONT_PATHS_BOLD if bold else FONT_PATHS_REGULAR
+    for fp in paths:
         if os.path.exists(fp):
             try:
                 font = ImageFont.truetype(fp, size)
-                _font_cache[size] = font
-                logger.debug(f"Using font: {os.path.basename(fp)} size={size}")
+                _font_cache[key] = font
                 return font
             except Exception:
                 continue
 
-    logger.warning("No TrueType font found — using default (Vietnamese may not render)")
+    logger.warning("No TrueType font found — using default")
     return ImageFont.load_default()
+
+
+def _draw_text_with_stroke(
+    draw: ImageDraw.Draw, pos: Tuple[int, int], text: str,
+    font: ImageFont.FreeTypeFont, fill=(255, 255, 255),
+    stroke_color=(0, 0, 0), stroke_width=3, **kwargs
+):
+    """Draw text with outline stroke for readability over any background"""
+    x, y = pos
+    draw.multiline_text(
+        (x, y), text, font=font, fill=fill,
+        stroke_width=stroke_width, stroke_fill=stroke_color, **kwargs
+    )
+
+
+def _create_glass_panel(w: int, h: int, radius: int = 30,
+                        bg_color=(0, 0, 0, 140)) -> Image.Image:
+    """Create a glassmorphism-style rounded panel"""
+    panel = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(panel)
+    draw.rounded_rectangle([(0, 0), (w - 1, h - 1)],
+                           radius=radius, fill=bg_color)
+    return panel
 
 
 def create_caption_overlay(
@@ -58,54 +90,128 @@ def create_caption_overlay(
     seg_type: str = "scene",
     scene_num: int = 0, total: int = 0,
 ) -> Image.Image:
-    """Create transparent PNG with caption text overlay"""
+    """
+    Create transparent PNG with premium caption text overlay.
+
+    Style: Trending TikTok/Shorts layout
+      - Centered subtitle panel at bottom
+      - Bold text with stroke outline
+      - Clean dot-based progress indicator
+      - Subtle brand watermark
+    """
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    font_main = get_font(80)
-    font_badge = get_font(36)
+    # === BOTTOM: Subtitle panel ===
+    font_size = 52 if w < 1200 else 48
+    font_main = get_font(font_size, bold=True)
 
-    # Dark gradient at bottom for text readability
-    caption_h = int(h * 0.40)
-    caption_y = h - caption_h
-    for y in range(caption_y, h):
-        alpha = int(220 * ((y - caption_y) / caption_h))
-        draw.line([(0, y), (w, y)], fill=(0, 0, 0, min(alpha, 220)))
+    # Wrap text — shorter lines for readability
+    max_chars = 18 if w < 1200 else 28
+    wrapped = textwrap.fill(text, width=max_chars)
+    lines = wrapped.split("\n")
 
-    # Caption text — large TikTok style
-    wrapped = textwrap.fill(text, width=16 if w < 1200 else 26)
-    draw.multiline_text((50, caption_y + 40), wrapped,
-                        fill=(255, 255, 255, 255), font=font_main, spacing=20)
+    # Calculate text block size
+    line_spacing = 12
+    line_height = font_size + line_spacing
+    text_block_h = line_height * len(lines)
+    panel_padding_y = 30
 
-    # Top elements
+    # Panel dimensions
+    panel_h = text_block_h + panel_padding_y * 2
+    panel_w = w - 80  # Leave margins
+    panel_x = 40
+    panel_y = h - panel_h - 120  # Leave space from bottom for TikTok UI
+
+    # Draw glass panel background
+    glass = _create_glass_panel(panel_w, panel_h, radius=24,
+                                bg_color=(0, 0, 0, 130))
+    img.paste(glass, (panel_x, panel_y), glass)
+
+    # Draw text with stroke — centered in panel
+    text_y = panel_y + panel_padding_y
+    for line in lines:
+        try:
+            tw = draw.textlength(line, font=font_main)
+        except Exception:
+            tw = len(line) * font_size * 0.5
+        text_x = panel_x + (panel_w - tw) // 2
+        _draw_text_with_stroke(
+            draw, (int(text_x), text_y), line,
+            font=font_main, fill=(255, 255, 255),
+            stroke_color=(0, 0, 0), stroke_width=4,
+        )
+        text_y += line_height
+
+    # === TOP: Progress & Branding ===
     if seg_type == "hook":
         brand_name = os.environ.get("BRAND_NAME", "")
         if brand_name:
+            font_brand = get_font(26, bold=True)
             try:
-                bw = draw.textlength(brand_name, font=font_badge)
+                bw = draw.textlength(brand_name, font=font_brand)
             except Exception:
-                bw = 60
-            draw.rounded_rectangle([(w//2 - int(bw/2) - 20, 30), (w//2 + int(bw/2) + 20, 70)],
-                                   radius=20, fill=(124, 77, 255, 200))
-            draw.text(((w - bw) // 2, 38), brand_name, fill=(255, 255, 255), font=font_badge)
+                bw = len(brand_name) * 14
+            # Pill-shaped brand badge — top center
+            badge_w = int(bw) + 40
+            badge_h = 42
+            badge_x = (w - badge_w) // 2
+            badge_y = 55
+            badge = _create_glass_panel(badge_w, badge_h, radius=21,
+                                        bg_color=(255, 255, 255, 30))
+            img.paste(badge, (badge_x, badge_y), badge)
+            _draw_text_with_stroke(
+                draw, (badge_x + 20, badge_y + 8), brand_name,
+                font=font_brand, fill=(255, 255, 255, 230),
+                stroke_width=2, stroke_color=(0, 0, 0),
+            )
 
     elif seg_type == "scene" and total > 0:
-        bar_w = w - 40
-        progress = int(bar_w * (scene_num / total))
-        draw.rectangle([(20, 15), (20 + bar_w, 22)], fill=(255, 255, 255, 60))
-        draw.rectangle([(20, 15), (20 + progress, 22)], fill=(124, 77, 255, 230))
-        draw.text((w - 80, 30), f"{scene_num}/{total}",
-                  fill=(255, 255, 255, 180), font=font_badge)
+        # Dot-based progress indicator — top center
+        dot_radius = 5
+        dot_spacing = 20
+        total_dots_w = total * dot_spacing
+        start_x = (w - total_dots_w) // 2
+        dot_y = 55
+
+        for i in range(1, total + 1):
+            cx = start_x + (i - 1) * dot_spacing + dot_radius
+            if i <= scene_num:
+                # Active dot — white filled
+                draw.ellipse(
+                    [(cx - dot_radius, dot_y - dot_radius),
+                     (cx + dot_radius, dot_y + dot_radius)],
+                    fill=(255, 255, 255, 255)
+                )
+            else:
+                # Inactive dot — dim
+                draw.ellipse(
+                    [(cx - dot_radius, dot_y - dot_radius),
+                     (cx + dot_radius, dot_y + dot_radius)],
+                    fill=(255, 255, 255, 80)
+                )
 
     elif seg_type == "cta":
-        cta_text = "GET IT NOW!"
-        draw.rounded_rectangle([(w//2 - 100, 30), (w//2 + 100, 70)],
-                               radius=20, fill=(124, 77, 255, 200))
+        # CTA — accent colored pill at top
+        cta_label = "👆 Theo dõi ngay"
+        font_cta = get_font(28, bold=True)
         try:
-            bw = draw.textlength(cta_text, font=font_badge)
+            cta_w = draw.textlength(cta_label, font=font_cta)
         except Exception:
-            bw = 80
-        draw.text(((w - bw) // 2, 38), cta_text, fill=(255, 255, 255), font=font_badge)
+            cta_w = 180
+        pill_w = int(cta_w) + 50
+        pill_h = 48
+        pill_x = (w - pill_w) // 2
+        pill_y = 50
+        # Accent pill
+        draw.rounded_rectangle(
+            [(pill_x, pill_y), (pill_x + pill_w, pill_y + pill_h)],
+            radius=24, fill=(99, 102, 241, 230)  # Indigo
+        )
+        draw.text(
+            (pill_x + 25, pill_y + 10), cta_label,
+            fill=(255, 255, 255), font=font_cta,
+        )
 
     return img
 
@@ -116,127 +222,326 @@ def create_gradient_frame(
     seg_type: str = "scene",
     scene_num: int = 0, total: int = 0,
     char_overlay_path: Optional[str] = None,
-    accent_color: Tuple[int, int, int] = (124, 77, 255),
+    accent_color: Tuple[int, int, int] = (99, 102, 241),
 ) -> Image.Image:
-    """Create a full scene frame with gradient bg + text (fallback when no stock footage)"""
-    img = Image.new("RGB", (w, h), bg_color)
+    """
+    Create a premium scene frame with gradient bg + text.
+    Used as fallback when no AI image or stock footage available.
+    """
+    img = Image.new("RGBA", (w, h), bg_color + (255,))
     draw = ImageDraw.Draw(img)
 
-    # Multi-stop gradient background
+    # Premium gradient background
     for y in range(h):
         ratio = y / h
-        if ratio < 0.5:
-            r = int(bg_color[0] * (1 - ratio) + accent_color[0] * ratio * 0.3)
-            g = int(bg_color[1] * (1 - ratio) + accent_color[1] * ratio * 0.3)
-            b = int(bg_color[2] * (1 - ratio) + accent_color[2] * ratio * 0.3)
+        if ratio < 0.3:
+            t = ratio / 0.3
+            r = int(bg_color[0] * (1 - t * 0.3))
+            g = int(bg_color[1] * (1 - t * 0.3))
+            b = int(bg_color[2] * (1 - t * 0.2))
+        elif ratio < 0.7:
+            t = (ratio - 0.3) / 0.4
+            r = int(bg_color[0] * 0.7 + accent_color[0] * 0.15 * t)
+            g = int(bg_color[1] * 0.7 + accent_color[1] * 0.15 * t)
+            b = int(bg_color[2] * 0.8 + accent_color[2] * 0.15 * t)
         else:
-            r = min(255, bg_color[0] + int(50 * ratio))
-            g = min(255, bg_color[1] + int(25 * ratio))
-            b = min(255, bg_color[2] + int(35 * ratio))
-        draw.line([(0, y), (w, y)], fill=(r, g, b))
+            t = (ratio - 0.7) / 0.3
+            r = min(255, int(bg_color[0] * 0.6 + 20 * t))
+            g = min(255, int(bg_color[1] * 0.6 + 10 * t))
+            b = min(255, int(bg_color[2] * 0.7 + 15 * t))
+        draw.line([(0, y), (w, y)], fill=(r, g, b, 255))
 
-    # Decorative geometric elements
-    ac = accent_color
-    # Top accent bar
-    draw.rectangle([(0, 0), (w, 6)], fill=ac)
-    # Corner accent circles
-    for cx, cy, radius in [(int(w*0.85), int(h*0.15), 80), (int(w*0.1), int(h*0.75), 50)]:
-        draw.ellipse([(cx-radius, cy-radius), (cx+radius, cy+radius)],
-                     fill=(ac[0], ac[1], ac[2], 40), outline=None)
-    # Diagonal lines for visual interest
-    for i in range(0, w + h, 120):
-        draw.line([(i, 0), (i - h//3, h)], fill=(255, 255, 255, 8), width=1)
-
-    font_main = get_font(72)
-    font_small = get_font(36)
-
-    # Centered text with shadow
-    wrapped = textwrap.fill(text, width=20 if w < 1200 else 30)
-    bbox = draw.multiline_textbbox((0, 0), wrapped, font=font_main, align="center")
-    tw = bbox[2] - bbox[0]
-    tx = (w - tw) // 2
-    ty = int(h * 0.15)
-    # Shadow
-    draw.multiline_text((tx + 3, ty + 3), wrapped, fill=(0, 0, 0),
-                        font=font_main, align="center", spacing=14)
-    # Main text
-    draw.multiline_text((tx, ty), wrapped, fill=(255, 255, 255),
-                        font=font_main, align="center", spacing=14)
-
-    # Bottom gradient bar for branding area
-    for y in range(h - 120, h):
-        alpha = int(180 * ((y - (h - 120)) / 120))
-        draw.line([(0, y), (w, y)], fill=(0, 0, 0, min(alpha, 180)))
-
-    if seg_type == "scene" and total > 0:
-        bar_w = w - 80
-        progress = int(bar_w * (scene_num / total))
-        draw.rectangle([(40, 25), (40 + bar_w, 32)], fill=(255, 255, 255, 30))
-        draw.rectangle([(40, 25), (40 + progress, 32)], fill=ac)
-        draw.text((w - 80, 40), f"{scene_num}/{total}", fill=(200, 200, 200), font=font_small)
-
-    brand_name = os.environ.get("BRAND_NAME", "")
-    if brand_name:
-        draw.rounded_rectangle(
-            [(30, h - 100), (max(200, len(brand_name) * 12 + 60), h - 60)],
-            radius=20, fill=(ac[0], ac[1], ac[2]),
+    # Subtle noise texture via soft circles
+    for cx, cy, radius, alpha in [
+        (int(w * 0.8), int(h * 0.2), 250, 15),
+        (int(w * 0.15), int(h * 0.6), 200, 12),
+        (int(w * 0.5), int(h * 0.85), 180, 10),
+    ]:
+        glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow)
+        glow_draw.ellipse(
+            [(cx - radius, cy - radius), (cx + radius, cy + radius)],
+            fill=(accent_color[0], accent_color[1], accent_color[2], alpha),
         )
-        draw.text((50, h - 95), brand_name, fill=(255, 255, 255), font=font_small)
+        glow = glow.filter(ImageFilter.GaussianBlur(radius=60))
+        img = Image.alpha_composite(img, glow)
+
+    # Create caption overlay and composite
+    caption = create_caption_overlay(text, w, h, seg_type, scene_num, total)
+    img = Image.alpha_composite(img, caption)
 
     # Character overlay
     if char_overlay_path and os.path.exists(char_overlay_path):
         try:
             overlay = Image.open(char_overlay_path).convert("RGBA")
-            img.paste(overlay, (0, 0), overlay)
+            img = Image.alpha_composite(img, overlay)
         except Exception:
             pass
 
-    return img
+    return img.convert("RGB")
+
+
+# ── Audio-Synced Captions ──
+
+def create_word_timing_captions(
+    text: str,
+    w: int,
+    h: int,
+    segment_duration: float,
+    seg_type: str = "scene",
+    scene_num: int = 0,
+    total: int = 0,
+    fps: int = 4,
+) -> List[Image.Image]:
+    """
+    Create a sequence of caption frames with progressive word highlighting.
+
+    TikTok/Shorts style: words appear left-to-right, current word is
+    highlighted in bright accent color, spoken words fade slightly.
+
+    Args:
+        text: The full caption text for this segment
+        w, h: Video dimensions
+        segment_duration: Duration of this segment in seconds
+        fps: How many caption frames per second (default 4 = every 250ms)
+
+    Returns:
+        List of PIL Images, one per timing step. Each image shows the
+        full text with the current word highlighted.
+    """
+    if not text or not text.strip():
+        return []
+
+    # Tokenize into words (keep punctuation attached)
+    words = [w for w in text.split() if w.strip()]
+    if not words:
+        return []
+
+    n_words = len(words)
+    # Number of frames = segment_duration * fps, at least one per word
+    n_frames = max(n_words, int(segment_duration * fps))
+
+    # Font config
+    font_size = 52 if w < 1200 else 48
+    font_main = get_font(font_size, bold=True)
+
+    # Color palette
+    active_fill = (255, 255, 80)     # Bright yellow — current word
+    spoken_fill = (255, 255, 255)    # White — already spoken
+    pending_fill = (180, 180, 200)   # Dim gray — not yet spoken
+    stroke_color = (0, 0, 0)
+    stroke_width = 4
+
+    # Panel layout (same as create_caption_overlay)
+    max_chars = 18 if w < 1200 else 28
+    wrapped = textwrap.fill(text, width=max_chars)
+    lines = wrapped.split("\n")
+
+    line_spacing = 12
+    line_height = font_size + line_spacing
+    text_block_h = line_height * len(lines)
+    panel_padding_y = 30
+    panel_h = text_block_h + panel_padding_y * 2
+    panel_w = w - 80
+    panel_x = 40
+    panel_y = h - panel_h - 120
+
+    frames: List[Image.Image] = []
+
+    # Build word-to-position mapping
+    word_positions = _build_word_positions(
+        words, lines, font_main, font_size, line_spacing,
+        panel_x, panel_y, panel_w, panel_padding_y, w,
+    )
+
+    for frame_idx in range(n_frames):
+        # Which word is currently being spoken?
+        word_idx = min(int(frame_idx * n_words / n_frames), n_words - 1)
+
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # Glass panel background
+        glass = _create_glass_panel(panel_w, panel_h, radius=24,
+                                    bg_color=(0, 0, 0, 130))
+        img.paste(glass, (panel_x, panel_y), glass)
+
+        # Draw each word with appropriate color
+        for wi, (wx, wy, word_text) in enumerate(word_positions):
+            if wi < word_idx:
+                fill = spoken_fill
+            elif wi == word_idx:
+                fill = active_fill
+            else:
+                fill = pending_fill
+
+            _draw_text_with_stroke(
+                draw, (int(wx), int(wy)), word_text,
+                font=font_main, fill=fill,
+                stroke_color=stroke_color, stroke_width=stroke_width,
+            )
+
+        # Progress indicator
+        if total > 0:
+            dot_radius = 5
+            dot_spacing = 20
+            total_dots_w = total * dot_spacing
+            start_x = (w - total_dots_w) // 2
+            dot_y = 55
+            for i in range(1, total + 1):
+                cx = start_x + (i - 1) * dot_spacing + dot_radius
+                if i <= scene_num:
+                    draw.ellipse(
+                        [(cx - dot_radius, dot_y - dot_radius),
+                         (cx + dot_radius, dot_y + dot_radius)],
+                        fill=(255, 255, 255, 255)
+                    )
+                else:
+                    draw.ellipse(
+                        [(cx - dot_radius, dot_y - dot_radius),
+                         (cx + dot_radius, dot_y + dot_radius)],
+                        fill=(255, 255, 255, 80)
+                    )
+
+        frames.append(img)
+
+    return frames
+
+
+def _build_word_positions(
+    words: List[str],
+    lines: List[str],
+    font: ImageFont.FreeTypeFont,
+    font_size: int,
+    line_spacing: int,
+    panel_x: int,
+    panel_y: int,
+    panel_w: int,
+    panel_padding_y: int,
+    video_w: int,
+) -> List[Tuple[float, float, str]]:
+    """
+    Map each word to its (x, y) pixel position within the caption panel.
+
+    Words are laid out left-to-right across lines with word spacing.
+    """
+    positions: List[Tuple[float, float, str]] = []
+    word_idx = 0
+    space_width = font_size * 0.3
+
+    for line_idx, line in enumerate(lines):
+        line_words = line.split()
+        y = panel_y + panel_padding_y + line_idx * (font_size + line_spacing)
+
+        try:
+            dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+            line_word_widths = [
+                dummy_draw.textlength(w, font=font) for w in line_words
+            ]
+        except Exception:
+            line_word_widths = [len(w) * font_size * 0.5 for w in line_words]
+
+        total_line_w = sum(line_word_widths) + space_width * (len(line_words) - 1)
+
+        # Center the line horizontally
+        start_x = panel_x + (panel_w - total_line_w) / 2
+
+        x = start_x
+        for wi, word in enumerate(line_words):
+            if word_idx < len(words):
+                positions.append((x, y, word))
+                word_idx += 1
+                x += line_word_widths[wi] + space_width
+
+    return positions
 
 
 def create_thumbnail(
     title: str, hook: str, w: int, h: int,
     char_image: Optional[str] = None,
 ) -> Image.Image:
-    """Create 9:16 thumbnail with title + character"""
-    img = Image.new("RGB", (w, h), (26, 10, 62))
+    """
+    Create premium 9:16 thumbnail.
+    Style: Clean, bold text, accent color, character overlay.
+    """
+    img = Image.new("RGBA", (w, h), (15, 15, 35, 255))
     draw = ImageDraw.Draw(img)
 
+    # Premium dark gradient
     for y in range(h):
-        draw.line([(0, y), (w, y)], fill=(
-            int(26 + 30 * y / h), int(10 + 15 * y / h), int(62 + 40 * y / h)))
+        ratio = y / h
+        r = int(15 + 25 * ratio)
+        g = int(15 + 10 * ratio)
+        b = int(35 + 30 * ratio)
+        draw.line([(0, y), (w, y)], fill=(r, g, b, 255))
 
-    draw.rectangle([(0, 0), (w, 10)], fill=(124, 77, 255))
+    # Accent glow at top
+    glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow)
+    glow_draw.ellipse(
+        [(w // 2 - 300, -200), (w // 2 + 300, 200)],
+        fill=(99, 102, 241, 40),
+    )
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=80))
+    img = Image.alpha_composite(img, glow)
 
-    font_big = get_font(60 if w < h else 50)
-    font_hook = get_font(38 if w < h else 32)
-    font_brand = get_font(28)
+    draw = ImageDraw.Draw(img)
 
-    wrapped_title = textwrap.fill(title, width=16)
-    bbox = draw.multiline_textbbox((0, 0), wrapped_title, font=font_big, align="center")
+    # Top accent line
+    draw.rectangle([(0, 0), (w, 4)], fill=(99, 102, 241))
+
+    font_big = get_font(56 if w < h else 48, bold=True)
+    font_hook = get_font(34 if w < h else 28, bold=False)
+    font_brand = get_font(24, bold=True)
+
+    # Title — centered, bold, with stroke
+    wrapped_title = textwrap.fill(title, width=14)
+    bbox = draw.multiline_textbbox((0, 0), wrapped_title,
+                                   font=font_big, align="center")
     tw = bbox[2] - bbox[0]
-    draw.multiline_text(((w - tw) // 2 + 3, int(h * 0.12) + 3), wrapped_title,
-                        fill=(0, 0, 0), font=font_big, align="center", spacing=14)
-    draw.multiline_text(((w - tw) // 2, int(h * 0.12)), wrapped_title,
-                        fill=(255, 255, 255), font=font_big, align="center", spacing=14)
+    title_y = int(h * 0.10)
+    _draw_text_with_stroke(
+        draw, ((w - tw) // 2, title_y), wrapped_title,
+        font=font_big, fill=(255, 255, 255),
+        stroke_width=4, stroke_color=(0, 0, 0),
+        align="center", spacing=16,
+    )
 
+    # Hook subtitle
     if hook:
-        wrapped_hook = textwrap.fill(hook, width=22)
-        bbox2 = draw.multiline_textbbox((0, 0), wrapped_hook, font=font_hook, align="center")
+        wrapped_hook = textwrap.fill(hook, width=20)
+        bbox2 = draw.multiline_textbbox((0, 0), wrapped_hook,
+                                        font=font_hook, align="center")
         hw = bbox2[2] - bbox2[0]
-        draw.multiline_text(((w - hw) // 2, int(h * 0.45)), wrapped_hook,
-                            fill=(200, 180, 255), font=font_hook, align="center", spacing=10)
+        hook_y = int(h * 0.42)
+        hh = bbox2[3] - bbox2[1] + 30
+        panel = _create_glass_panel(hw + 60, hh, radius=20,
+                                    bg_color=(99, 102, 241, 50))
+        img.paste(panel, ((w - hw - 60) // 2, hook_y - 15), panel)
+        draw = ImageDraw.Draw(img)
+        _draw_text_with_stroke(
+            draw, ((w - hw) // 2, hook_y), wrapped_hook,
+            font=font_hook, fill=(220, 210, 255),
+            stroke_width=2, stroke_color=(0, 0, 0),
+            align="center", spacing=10,
+        )
 
+    # Brand watermark — bottom, subtle
     brand_name = os.environ.get("BRAND_NAME", "")
     if brand_name:
         try:
             bw = draw.textlength(brand_name, font=font_brand)
         except Exception:
-            bw = 80
-        draw.rounded_rectangle([(w//2 - int(bw/2) - 40, h - 300), (w//2 + int(bw/2) + 40, h - 250)],
-                               radius=25, fill=(124, 77, 255))
-        draw.text(((w - bw) // 2, h - 290), brand_name, fill=(255, 255, 255), font=font_brand)
+            bw = len(brand_name) * 14
+        brand_y = h - 280
+        badge = _create_glass_panel(int(bw) + 50, 40, radius=20,
+                                    bg_color=(99, 102, 241, 180))
+        img.paste(badge, ((w - int(bw) - 50) // 2, brand_y), badge)
+        draw = ImageDraw.Draw(img)
+        draw.text(((w - bw) // 2, brand_y + 8), brand_name,
+                  fill=(255, 255, 255), font=font_brand)
 
+    # Character overlay
     if char_image and os.path.exists(char_image):
         try:
             char = Image.open(char_image).convert("RGBA")
@@ -244,10 +549,7 @@ def create_thumbnail(
             char_h = int(char_w * char.height / char.width)
             char = char.resize((char_w, char_h), Image.LANCZOS)
             cx, cy = w - char_w - 30, h - char_h - 40
-            if char.mode == "RGBA":
-                img.paste(char, (cx, cy), char)
-            else:
-                img.paste(char, (cx, cy))
+            img.paste(char, (cx, cy), char)
         except Exception as e:
             logger.warning(f"Character overlay failed: {e}")
 
