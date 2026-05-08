@@ -11,6 +11,7 @@ Design philosophy (based on trending short-form video styles):
 """
 
 import logging
+import math
 import os
 import textwrap
 from pathlib import Path
@@ -554,3 +555,100 @@ def create_thumbnail(
             logger.warning(f"Character overlay failed: {e}")
 
     return img.convert("RGB")
+
+
+# ═══════════════════════════════════════════════════════════
+# TikTok Meme & Reaction Templates
+# ═══════════════════════════════════════════════════════════
+
+MEME_COLORS = [
+    (255, 59, 48),   # Red
+    (255, 149, 0),   # Orange
+    (255, 204, 0),   # Yellow
+    (52, 199, 89),   # Green
+    (0, 122, 255),   # Blue
+    (175, 82, 222),  # Purple
+    (255, 45, 85),   # Pink
+]
+
+
+def create_meme_caption(text, w, h, position="center", color_idx=0, emoji=""):
+    """Create TikTok meme-style caption: bold text on colored bar with emoji."""
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    color = MEME_COLORS[color_idx % len(MEME_COLORS)]
+    font_size = 64 if w < 1200 else 56
+    font = get_font(font_size, bold=True)
+    display_text = text.strip().upper()
+    if emoji:
+        display_text = f"{emoji} {display_text} {emoji}"
+    max_chars = 12 if w < 1200 else 20
+    if len(display_text) > max_chars:
+        display_text = textwrap.shorten(display_text, width=max_chars, placeholder="…")
+    wrapped = textwrap.fill(display_text, width=max_chars)
+    lines = wrapped.split("\n")[:2]
+    try:
+        line_widths = [draw.textlength(ln, font=font) for ln in lines]
+        max_line_w = max(line_widths) if line_widths else 0
+        line_height = font_size + 10
+        text_block_h = line_height * len(lines)
+    except Exception:
+        max_line_w = len(max(lines, key=len)) * font_size * 0.6
+        text_block_h = font_size * len(lines) * 1.2
+    bar_padding_x, bar_padding_y = 60, 30
+    bar_w = int(max_line_w + bar_padding_x * 2)
+    bar_h = int(text_block_h + bar_padding_y * 2)
+    bar_x = (w - bar_w) // 2
+    if position == "top":
+        bar_y = int(h * 0.08)
+    elif position == "bottom":
+        bar_y = h - bar_h - int(h * 0.15)
+    else:
+        bar_y = (h - bar_h) // 2
+    draw.rounded_rectangle(
+        [(bar_x + 6, bar_y + 6), (bar_x + bar_w + 6, bar_y + bar_h + 6)],
+        radius=20, fill=(0, 0, 0, 100),
+    )
+    draw.rounded_rectangle(
+        [(bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h)],
+        radius=20, fill=color + (240,),
+    )
+    text_y = bar_y + bar_padding_y
+    for line in lines:
+        try:
+            lw = draw.textlength(line, font=font)
+        except Exception:
+            lw = len(line) * font_size * 0.5
+        tx = bar_x + (bar_w - lw) // 2
+        draw.text((tx + 2, text_y + 2), line, fill=(0, 0, 0, 180), font=font)
+        draw.text((tx, text_y), line, fill=(255, 255, 255), font=font)
+        text_y += line_height
+    return img
+
+
+def create_reaction_cut(w, h, effect="zoom_in", duration=1.5, n_frames=8):
+    """Create reaction cut frame sequence: zoom, flash, or shake effect."""
+    frames = []
+    for i in range(n_frames):
+        t = i / max(n_frames - 1, 1)
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        if effect == "flash":
+            alpha = int(180 * (1.0 - abs(2 * t - 1)))
+            draw.rectangle([(0, 0), (w, h)], fill=(255, 255, 255, alpha))
+        elif effect == "shake":
+            shake_x = int(30 * math.sin(t * math.pi * 8) * (1 - t))
+            bar_w = int(w * 0.15)
+            color = MEME_COLORS[i % len(MEME_COLORS)]
+            draw.rectangle([(shake_x, 0), (shake_x + bar_w, h)], fill=color + (150,))
+            draw.rectangle([(w - shake_x - bar_w, 0), (w - shake_x, h)], fill=color + (150,))
+        elif effect in ("zoom_in", "zoom_out"):
+            vignette_alpha = int(120 * (t if effect == "zoom_in" else (1 - t)))
+            for y in range(h):
+                edge_dist = min(y, h - y) / (h * 0.3)
+                fade = min(1.0, edge_dist)
+                alpha = int(vignette_alpha * (1 - fade))
+                if alpha > 0:
+                    draw.line([(0, y), (w, y)], fill=(0, 0, 0, alpha))
+        frames.append(img)
+    return frames
