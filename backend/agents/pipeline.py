@@ -50,12 +50,32 @@ class Pipeline:
             TrendScraperAgent(config),        # Fetch TikTok trends
             ScriptWriterAgent(config),         # Uses trends + history for unique scripts
             ABTestAgent(config),
+        ]
+
+        # Pixelle-Video AI image generation
+        # Auto-enable if PIXELLE_ENABLED=true OR PIXELLE_VIDEO_API_URL is configured
+        import os
+        pixelle_enabled = os.getenv("PIXELLE_ENABLED", "false").lower() in (
+            "true", "1", "yes"
+        )
+        pixelle_url = os.getenv("PIXELLE_VIDEO_API_URL", "")
+        pixelle_configured = bool(
+            pixelle_url
+            and pixelle_url != "http://localhost:8085"
+            and "://" in pixelle_url
+        )
+        if pixelle_enabled or pixelle_configured:
+            from .ai_image import AIImageAgent
+            agents.append(AIImageAgent(config))
+            logger.info("🎨 Pixelle-Video AI image generation enabled")
+
+        agents.extend([
             VoiceGeneratorAgent(config),
             VideoComposerAgent(config),
             ThumbnailAgent(config),
             QualityReviewAgent(config),
             PublisherAgent(config),
-        ]
+        ])
         return cls(agents)
 
     def run(self, job_input: Dict[str, Any], resume_from: str = "") -> Dict[str, Any]:
