@@ -79,6 +79,9 @@ class CeleryConfig:
 # Apply configuration
 celery_app.config_from_object(CeleryConfig)
 
+# Set this as the default Celery app so @shared_task uses it
+celery_app.set_default()
+
 # Auto-discover tasks
 celery_app.autodiscover_tasks([
     'backend.tasks.processing',

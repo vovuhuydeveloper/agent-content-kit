@@ -20,7 +20,7 @@ class PublisherAgent(BaseAgent):
     max_retries = 2
 
     def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        approved_videos = context.get("approved_videos", [])
+        approved_videos = context.get("approved_videos") or context.get("videos", [])
         scripts = context.get("scripts", [])
         thumbnails = context.get("thumbnails", [])
         platforms = context.get("platforms", ["tiktok", "youtube"])
