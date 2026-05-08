@@ -88,6 +88,15 @@ class Settings(BaseSettings):
     agent_max_retries: int = Field(default=3)
     ffmpeg_timeout: int = Field(default=120)
 
+    # Pixelle-Video Integration
+    pixelle_enabled: bool = Field(default=False, validation_alias=AliasChoices('PIXELLE_ENABLED'))
+    pixelle_video_api_url: str = Field(default='http://localhost:8085', validation_alias=AliasChoices('PIXELLE_VIDEO_API_URL'))
+    pixelle_comfyui_url: str = Field(default='http://127.0.0.1:8188', validation_alias=AliasChoices('PIXELLE_COMFYUI_URL'))
+    pixelle_runninghub_api_key: str = Field(default='', validation_alias=AliasChoices('PIXELLE_RUNNINGHUB_API_KEY'))
+    pixelle_image_workflow: str = Field(default='runninghub/image_flux.json', validation_alias=AliasChoices('PIXELLE_IMAGE_WORKFLOW'))
+    pixelle_image_prompt_prefix: str = Field(default='High quality, cinematic style illustration', validation_alias=AliasChoices('PIXELLE_IMAGE_PROMPT_PREFIX'))
+    pixelle_request_timeout: int = Field(default=120, validation_alias=AliasChoices('PIXELLE_REQUEST_TIMEOUT'))
+
 # Global configuration instance
 settings = Settings()
 
