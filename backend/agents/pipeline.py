@@ -78,6 +78,10 @@ class Pipeline:
             agents.append(AIImageAgent(config))
             logger.info("🎨 Pixelle-Video AI image generation enabled")
 
+        # Character agent (talking pet/avatar)
+        from .character import CharacterAgent
+        agents.append(CharacterAgent(config))
+
         agents.extend([
             VoiceGeneratorAgent(config),
             VideoComposerAgent(config),
@@ -207,6 +211,7 @@ class Pipeline:
             "language": job_input.get("language", "vi"),
             "video_count": job_input.get("video_count", 1),
             "niche": job_input.get("niche", ""),
+            "character_mode": job_input.get("character_mode", "static"),
             "agent_results": [],
             "errors": [],
             "last_checkpoint": "",

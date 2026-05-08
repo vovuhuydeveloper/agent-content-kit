@@ -60,6 +60,11 @@ class VideoComposerAgent(BaseAgent):
         scripts = context["scripts"]
         voice_files = context["voice_files"]
         character_images = context.get("character_images", [])
+        # Animated character frames (from CharacterAgent)
+        character_frames = context.get("character_frames", {})
+        character_frames_available = context.get("character_frames_available", False)
+        if character_frames_available:
+            logger.info(f"🎭 Using animated character frames across {len(character_frames)} segments")
         job_dir = Path(context["job_dir"])
         niche = context.get("niche", "")
 
@@ -131,7 +136,7 @@ class VideoComposerAgent(BaseAgent):
                 success = self._render(
                     script, voice_path, char_overlay, output_path,
                     w, h, audio_dur, orientation, job_dir, pexels_key,
-                    script_ai_videos=script_ai_videos, script_ai_images=script_ai_images,
+                    script_ai_videos=script_ai_videos, script_ai_images=script_ai_images, character_frames=character_frames,
                     niche=niche,
                 )
 
@@ -268,7 +273,7 @@ class VideoComposerAgent(BaseAgent):
 
     def _render(self, script, voice_path, char_overlay, output_path,
                 w, h, audio_dur, orientation, job_dir, pexels_key,
-                script_ai_videos=None, script_ai_images=None, niche=""):
+                script_ai_videos=None, script_ai_images=None, character_frames=None, niche=""):
         segments = self._build_segments(script, audio_dur)
 
         # Build AI video lookup: map segment index to video path
@@ -318,11 +323,20 @@ class VideoComposerAgent(BaseAgent):
         for idx, seg in enumerate(segments):
             seg_out = temp_dir / f"seg_{idx:03d}.mp4"
             dur = seg["duration"]
+            char_frames = (character_frames or {}).get(str(idx), [])
             ai_clip = ai_video_map.get(idx)
             ai_img = ai_image_map.get(idx)
             stock = stock_clips.get(idx)
 
             ok = False
+
+            # Determine character overlay for this segment
+            # Use animated character frame if available, else static overlay
+            seg_char_overlay = char_overlay
+            if char_frames:
+                # Use first character frame as overlay for this segment
+                seg_char_overlay = char_frames[0]
+                logger.debug(f"🎭 Animated character frame for segment {idx}")
 
             # Priority 0: AI-generated video clip (from Kling/Runway)
             if ai_clip and Path(ai_clip).exists():
@@ -332,9 +346,8 @@ class VideoComposerAgent(BaseAgent):
                 )
                 cap_path = temp_dir / f"cap_{idx:03d}.png"
                 caption.save(str(cap_path), "PNG")
-                # Use AI video clip as background with caption + character overlay
                 ok = create_stock_segment(
-                    ai_clip, cap_path, char_overlay,
+                    ai_clip, cap_path, seg_char_overlay,
                     seg_out, w, h, dur,
                 )
                 logger.debug(f"🎬 AI video clip used for segment {idx}")
@@ -349,7 +362,7 @@ class VideoComposerAgent(BaseAgent):
                 caption.save(str(cap_path), "PNG")
 
                 # Compose AI image as background with caption overlay
-                ai_bg = self._compose_ai_background(ai_img, cap_path, char_overlay, w, h)
+                ai_bg = self._compose_ai_background(ai_img, cap_path, seg_char_overlay, w, h)
                 ai_bg_path = temp_dir / f"ai_frame_{idx:03d}.png"
                 ai_bg.save(str(ai_bg_path), "PNG")
                 ok = image_to_video_kenburns(ai_bg_path, seg_out, dur, w, h)
@@ -362,7 +375,7 @@ class VideoComposerAgent(BaseAgent):
                 )
                 cap_path = temp_dir / f"cap_{idx:03d}.png"
                 caption.save(str(cap_path), "PNG")
-                ok = create_stock_segment(stock, cap_path, char_overlay, seg_out, w, h, dur)
+                ok = create_stock_segment(stock, cap_path, seg_char_overlay, seg_out, w, h, dur)
 
             # Priority 3: PIL gradient fallback
             if not ok:
@@ -372,7 +385,7 @@ class VideoComposerAgent(BaseAgent):
                 accent = tuple(cs.get("accent", [124, 77, 255])[:3])
                 frame = create_gradient_frame(
                     seg["text"], w, h, bg, seg["type"],
-                    seg.get("num", 0), seg.get("total", 0), char_overlay,
+                    seg.get("num", 0), seg.get("total", 0), seg_char_overlay,
                     accent_color=accent,
                 )
                 frame_path = temp_dir / f"frame_{idx:03d}.png"
