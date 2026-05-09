@@ -22,15 +22,17 @@ env/
 # ─── Environment & Secrets ───
 .env
 !.env.example
+.claude/
+.deepseek/
 data/config/oauth_tokens/
 data/config/*.json
 
 # ─── Data & Logs ───
 data/jobs/
 data/logs/
-data/*.db
 *.db
 *.sqlite3
+data/script_history.json
 
 # ─── Node / Dashboard ───
 dashboard/node_modules/
