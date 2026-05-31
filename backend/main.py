@@ -9,8 +9,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Initialize Celery app early — this sets the "current app" for @shared_task decorators
-# so tasks are bound to the correct Redis broker instead of defaulting to amqp://localhost
+# Initialize Celery app early
 import backend.core.celery_app  # noqa
 
 # Import configuration
@@ -22,8 +21,8 @@ logging.basicConfig(
     level=getattr(logging, logging_config["level"]),
     format=logging_config["format"],
     handlers=[
-        logging.StreamHandler(),  # Console output
-        logging.FileHandler(logging_config["file"])  # File output
+        logging.StreamHandler(),
+        logging.FileHandler(logging_config["file"])
     ]
 )
 
@@ -64,9 +63,6 @@ async def startup_event():
     else:
         logger.warning("API key configuration not found")
 
-    # WebSocket gateway disabled, using simple progress system
-    logger.info("WebSocket gateway disabled, using simple progress system")
-
     # Start Telegram bot polling (handles approve/reject callbacks)
     try:
         from .telegram_bot import start_telegram_bot
@@ -79,16 +75,11 @@ async def startup_event():
 async def shutdown_event():
     """Application shutdown event"""
     logger.info("Shutting down API server...")
-    # WebSocket gateway disabled
-    # from .services.websocket_gateway_service import websocket_gateway_service
-    # await websocket_gateway_service.stop()
-    # logger.info("WebSocket gateway stopped")
-    logger.info("WebSocket gateway disabled")
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -105,7 +96,7 @@ from fastapi.staticfiles import StaticFiles
 
 dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard", "dist")
 
-# Root redirect — vào dashboard nếu đã có job, setup nếu chưa
+# Root redirect — to dashboard if jobs exist, otherwise setup
 @app.get("/")
 async def root_redirect():
     from .core.database import SessionLocal
@@ -163,54 +154,54 @@ else:
 # Video categories endpoint
 @app.get("/api/v1/video-categories")
 async def get_video_categories():
-    """getVideo category configuration."""
+    """Get video category configuration."""
     return {
         "categories": [
             {
                 "value": "default",
                 "name": "Default",
-                "description": "General video contentprocessing",
+                "description": "General video content processing",
                 "icon": "🎬",
                 "color": "#4facfe"
             },
             {
                 "value": "knowledge",
                 "name": "Educational",
-                "description": "、、、",
+                "description": "Knowledge and education",
                 "icon": "📚",
                 "color": "#52c41a"
             },
             {
                 "value": "entertainment",
-                "name": "",
-                "description": "、、",
+                "name": "Entertainment",
+                "description": "Games and entertainment",
                 "icon": "🎮",
                 "color": "#722ed1"
             },
             {
                 "value": "business",
-                "name": "",
-                "description": "、、",
+                "name": "Business",
+                "description": "Business and finance",
                 "icon": "💼",
                 "color": "#fa8c16"
             },
             {
                 "value": "experience",
-                "name": "",
-                "description": "、",
+                "name": "Experience",
+                "description": "Experience sharing",
                 "icon": "🌟",
                 "color": "#eb2f96"
             },
             {
                 "value": "opinion",
-                "name": "",
-                "description": "、",
+                "name": "Opinion",
+                "description": "Opinions and commentary",
                 "icon": "💭",
                 "color": "#13c2c2"
             },
             {
                 "value": "speech",
-                "name": "",
+                "name": "Speech",
                 "description": "Public speeches and lectures",
                 "icon": "🎤",
                 "color": "#f5222d"
@@ -218,10 +209,10 @@ async def get_video_categories():
         ]
     }
 
-# Import unified errormiddleware
+# Import unified error middleware
 from .core.error_middleware import global_exception_handler
 
-# Register global exceptionhandler
+# Register global exception handler
 app.add_exception_handler(Exception, global_exception_handler)
 
 if __name__ == "__main__":
@@ -229,7 +220,7 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    # Defaultport
+    # Default port
     port = 8000
 
     # Check CLI arguments
@@ -242,5 +233,5 @@ if __name__ == "__main__":
                     logger.error(f"Invalid port number: {sys.argv[i + 1]}")
                     port = 8000
 
-    logger.info(f"Starting server, port，port: {port}")
+    logger.info(f"Starting server on port: {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

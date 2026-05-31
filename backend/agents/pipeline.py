@@ -5,6 +5,7 @@ Runs agents sequentially, saves state after each, supports resume.
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,7 +33,11 @@ class Pipeline:
 
     @classmethod
     def default(cls, config=None) -> "Pipeline":
-        """Build default pipeline with all agents"""
+        """Build default pipeline with all agents.
+
+        Uses config object (Settings) when available, falls back to
+        os.getenv() only when no config is injected.
+        """
         from .ab_testing import ABTestAgent
         from .analyzer import CompetitorAnalyzerAgent
         from .composer import VideoComposerAgent
@@ -45,36 +50,46 @@ class Pipeline:
         from .trend_scraper import TrendScraperAgent
         from .voice import VoiceGeneratorAgent
 
+        # Use Settings if available, otherwise fall back to env
+        try:
+            from backend.core.config import Settings
+            _settings = Settings()
+        except ImportError:
+            _settings = None
+
         agents = [
             ContentFetcherAgent(config),
             CompetitorAnalyzerAgent(config),
-            TrendScraperAgent(config),        # Fetch TikTok trends
-            ScriptWriterAgent(config),         # Uses trends + history for unique scripts
+            TrendScraperAgent(config),
+            ScriptWriterAgent(config),
             ABTestAgent(config),
         ]
 
         # AI Video generation (Kling / Runway)
-        # Auto-enable if KLING_API_KEY or RUNWAY_API_KEY is configured
-        import os
-        kling_key = os.getenv("KLING_API_KEY", "")
-        runway_key = os.getenv("RUNWAY_API_KEY", "")
+        # os.getenv() takes precedence over settings for runtime overrides
+        kling_key = os.getenv("KLING_API_KEY") or (getattr(_settings, 'kling_api_key', '') if _settings else '')
+        runway_key = os.getenv("RUNWAY_API_KEY") or (getattr(_settings, 'runway_api_key', '') if _settings else '')
+
         if (kling_key and len(kling_key) > 10) or (runway_key and len(runway_key) > 10):
             from .ai_video import AIVideoAgent
             agents.append(AIVideoAgent(config))
             logger.info("🎬 AI Video generation (Kling/Runway) enabled")
 
         # Pixelle-Video AI image generation
-        # Auto-enable if PIXELLE_ENABLED=true OR PIXELLE_VIDEO_API_URL is configured
-        pixelle_enabled = os.getenv("PIXELLE_ENABLED", "false").lower() in (
-            "true", "1", "yes"
-        )
-        pixelle_url = os.getenv("PIXELLE_VIDEO_API_URL", "")
-        pixelle_configured = bool(
-            pixelle_url
-            and pixelle_url != "http://localhost:8085"
-            and "://" in pixelle_url
-        )
-        if pixelle_enabled or pixelle_configured:
+        # os.getenv() takes precedence over settings for runtime overrides
+        pixelle_enabled = os.getenv("PIXELLE_ENABLED")
+        if pixelle_enabled is None:
+            pixelle_enabled = getattr(_settings, 'pixelle_enabled', False) if _settings else False
+        else:
+            pixelle_enabled = pixelle_enabled.lower() in ("true", "1", "yes")
+
+        pixelle_configured = bool(pixelle_enabled)
+        if not pixelle_configured:
+            pixelle_url = os.getenv("PIXELLE_VIDEO_API_URL")
+            if pixelle_url is None:
+                pixelle_url = getattr(_settings, 'pixelle_video_api_url', 'http://localhost:8085') if _settings else 'http://localhost:8085'
+            pixelle_configured = bool(pixelle_url and pixelle_url != "http://localhost:8085" and "://" in pixelle_url)
+        if pixelle_configured:
             from .ai_image import AIImageAgent
             agents.append(AIImageAgent(config))
             logger.info("🎨 Pixelle-Video AI image generation enabled")

@@ -18,7 +18,7 @@ DATABASE_URL = os.getenv(
     "sqlite:///autoclip.db"
 )
 
-# If nosetenvironment variable，useconfigurationfunctionGet database URL
+# If no environment variable is set, use config function to get database URL
 if DATABASE_URL == "sqlite:///autoclip.db":
     try:
         from .config import get_database_url
@@ -27,9 +27,9 @@ if DATABASE_URL == "sqlite:///autoclip.db":
         # If import fails, keep defaults
         pass
 
-# createdataengine
+# Create database engine
 if "sqlite" in DATABASE_URL:
-    # SQLiteconfiguration
+    # SQLite configuration
     engine = create_engine(
         DATABASE_URL,
         connect_args={
@@ -41,7 +41,7 @@ if "sqlite" in DATABASE_URL:
         echo=False  # Set True to see SQL statements
     )
 else:
-    # PostgreSQLconfiguration
+    # PostgreSQL configuration
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
@@ -95,7 +95,7 @@ def test_connection() -> bool:
 
 # Database initialization
 def init_database():
-    """initialize database"""
+    """Initialize database"""
     print("Initializing database...")
 
     # Test connection
@@ -113,5 +113,5 @@ def init_database():
         return False
 
 if __name__ == "__main__":
-    # fileinitialize database
+    # Initialize database
     init_database()

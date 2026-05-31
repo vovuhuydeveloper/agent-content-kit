@@ -8,9 +8,6 @@ import os
 from celery import Celery
 from celery.schedules import crontab
 
-# Set default configuration module
-# os.environ.setdefault('CELERY_CONFIG_MODULE', 'backend.core.celery_app')
-
 # Create Celery application
 celery_app = Celery('autoclip')
 
@@ -22,7 +19,7 @@ class CeleryConfig:
     task_serializer = 'json'
     accept_content = ['json']
     result_serializer = 'json'
-    timezone = 'Asia/Shanghai'
+    timezone = 'UTC'
     enable_utc = True
 
     # Redis configuration
@@ -30,7 +27,7 @@ class CeleryConfig:
     result_backend = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
     # Task configuration
-    task_always_eager = os.getenv('CELERY_ALWAYS_EAGER', 'False').lower() == 'true'  # Async execution in production
+    task_always_eager = os.getenv('CELERY_ALWAYS_EAGER', 'False').lower() == 'true'
     task_eager_propagates = True
 
     # Worker configuration
@@ -44,54 +41,43 @@ class CeleryConfig:
         'backend.tasks.video.*': {'queue': 'video'},
         'backend.tasks.notification.*': {'queue': 'notification'},
         'backend.tasks.upload.*': {'queue': 'upload'},
-        'backend.tasks.import_processing.*': {'queue': 'processing'},
-        'agents.*': {'queue': 'processing'},  # Agent pipeline tasks
+        'agents.*': {'queue': 'processing'},
     }
 
-    # PeriodicTask configuration
+    # Periodic tasks
     beat_schedule = {
-        'cleanup-expired-tasks': {
-            'task': 'backend.tasks.maintenance.cleanup_expired_tasks',
-            'schedule': crontab(hour=2, minute=0),  # Daily at 2am
-        },
-        'health-check': {
-            'task': 'backend.tasks.maintenance.health_check',
-            'schedule': crontab(minute='*/5'),  # Every 5 minutes
-        },
         'check-scheduled-jobs': {
             'task': 'schedule.check_scheduled_jobs',
-            'schedule': crontab(minute='*'),  # Every minute
+            'schedule': crontab(minute='*'),
         },
         'collect-analytics': {
             'task': 'analytics.collect_all',
-            'schedule': crontab(hour=6, minute=0),  # Daily at 6am
+            'schedule': crontab(hour=6, minute=0),
         },
     }
 
     # Result configuration
-    result_expires = 3600  # 1hour
+    result_expires = 3600
     task_ignore_result = False
 
-    # Logging configuration
+    # Logging
     worker_log_format = '[%(asctime)s: %(levelname)s/%(processName)s] %(message)s'
     worker_task_log_format = '[%(asctime)s: %(levelname)s/%(processName)s] [%(task_name)s(%(task_id)s)] %(message)s'
 
 # Apply configuration
 celery_app.config_from_object(CeleryConfig)
 
-# Set this as the default Celery app so @shared_task uses it
+# Set this as the default Celery app
 celery_app.set_default()
 
-# Auto-discover tasks
+# Auto-discover tasks (only existing modules)
 celery_app.autodiscover_tasks([
+    'backend.tasks.agent_tasks',
+    'backend.tasks.schedule_tasks',
+    'backend.tasks.analytics_collector',
     'backend.tasks.processing',
     'backend.tasks.video',
     'backend.tasks.notification',
-    'backend.tasks.maintenance',
-    'backend.tasks.import_processing',
-    'backend.tasks.agent_tasks',       # Content agent pipeline
-    'backend.tasks.schedule_tasks',    # Scheduled content jobs
-    'backend.tasks.analytics_collector', # Video analytics
 ])
 
 

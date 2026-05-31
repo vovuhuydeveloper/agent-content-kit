@@ -26,7 +26,7 @@ class RedisSettings(BaseModel):
     url: str = Field(default='redis://localhost:6379/0', validation_alias=AliasChoices('REDIS_URL'))
 
 class ProcessingSettings(BaseModel):
-    """processingconfiguration"""
+    """Processing configuration"""
     chunk_size: int = Field(default=5000, validation_alias=AliasChoices('PROCESSING_CHUNK_SIZE'))
     min_score_threshold: float = Field(default=0.7, validation_alias=AliasChoices('PROCESSING_MIN_SCORE_THRESHOLD'))
     max_clips_per_collection: int = Field(default=5, validation_alias=AliasChoices('PROCESSING_MAX_CLIPS_PER_COLLECTION'))
@@ -39,15 +39,15 @@ class LoggingSettings(BaseModel):
     file: str = Field(default='backend.log', validation_alias=AliasChoices('LOG_FILE'))
 
 class Settings(BaseSettings):
-    """Applicationset"""
-    # Allow .env + Ignore undeclared keys，Avoid"Extra inputs are not permitted"
+    """Application settings"""
+    # Allow .env and ignore undeclared keys to avoid "Extra inputs are not permitted"
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
     environment: str = Field(default='development', validation_alias=AliasChoices('ENVIRONMENT'))
     debug: bool = Field(default=True, validation_alias=AliasChoices('DEBUG'))
     encryption_key: str = Field(default='', validation_alias=AliasChoices('ENCRYPTION_KEY'))
 
-    # Direct field definition，don't use nestedBaseModel
+    # Direct field definition, do not use nested BaseModel
     database_url: str = Field(default='sqlite:///./data/autoclip.db', validation_alias=AliasChoices('DATABASE_URL'))
     redis_url: str = Field(default='redis://localhost:6379/0', validation_alias=AliasChoices('REDIS_URL'))
     api_dashscope_api_key: str = Field(default='', validation_alias=AliasChoices('API_DASHSCOPE_API_KEY'))
@@ -114,21 +114,21 @@ def get_project_root() -> Path:
     return get_root()
 
 def get_data_directory() -> Path:
-    """getdatadirectory"""
+    """Get data directory"""
     project_root = get_project_root()
     data_dir = project_root / "data"
     data_dir.mkdir(exist_ok=True)
     return data_dir
 
 def get_uploads_directory() -> Path:
-    """getuploadfiledirectory"""
+    """Get upload file directory"""
     data_dir = get_data_directory()
     uploads_dir = data_dir / "uploads"
     uploads_dir.mkdir(exist_ok=True)
     return uploads_dir
 
 def get_temp_directory() -> Path:
-    """getTemporary filesdirectory"""
+    """Get temporary files directory"""
     data_dir = get_data_directory()
     temp_dir = data_dir / "temp"
     temp_dir.mkdir(exist_ok=True)
@@ -146,7 +146,7 @@ def get_database_url() -> str:
     return settings.database_url
 
 def get_redis_url() -> str:
-    """getRedis URL"""
+    """Get Redis URL"""
     return settings.redis_url
 
 def get_api_key() -> Optional[str]:
@@ -162,7 +162,7 @@ def get_model_config() -> Dict[str, Any]:
     }
 
 def get_processing_config() -> Dict[str, Any]:
-    """getprocessingconfiguration"""
+    """Get processing configuration"""
     return {
         "chunk_size": settings.processing_chunk_size,
         "min_score_threshold": settings.processing_min_score_threshold,
@@ -171,16 +171,16 @@ def get_processing_config() -> Dict[str, Any]:
     }
 
 def get_logging_config() -> Dict[str, Any]:
-    """getLogging configuration"""
+    """Get logging configuration"""
     return {
         "level": settings.log_level,
         "format": settings.log_format,
         "file": settings.log_file
     }
 
-# initializationpathconfiguration
+# Initialize path configuration
 def init_paths():
-    """initializationpathconfiguration"""
+    """Initialize path configuration"""
     project_root = get_project_root()
     data_dir = get_data_directory()
     uploads_dir = get_uploads_directory()
@@ -188,8 +188,8 @@ def init_paths():
     output_dir = get_output_directory()
 
     print(f"Project root directory: {project_root}")
-    print(f"datadirectory: {data_dir}")
-    print(f"uploaddirectory: {uploads_dir}")
+    print(f"Data directory: {data_dir}")
+    print(f"Upload directory: {uploads_dir}")
     print(f"Temp directory: {temp_dir}")
     print(f"Output directory: {output_dir}")
 
@@ -199,4 +199,4 @@ if __name__ == "__main__":
     print(f"Database URL: {get_database_url()}")
     print(f"Redis URL: {get_redis_url()}")
     print(f"API configuration: {get_model_config()}")
-    print(f"processingconfiguration: {get_processing_config()}")
+    print(f"Processing configuration: {get_processing_config()}")
