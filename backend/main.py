@@ -1,19 +1,22 @@
-"""FastAPI application entry point"""
+"""FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
 load_dotenv()  # Load .env BEFORE any other imports
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
-# Initialize Celery app early
-import backend.core.celery_app  # noqa
+import backend.core.celery_app  # noqa: F401  # initialize Celery early
 
-# Import configuration
-from .core.config import get_api_key, get_logging_config
+from .core.config import get_api_key, get_logging_config, settings
 
 # Configure logging
 logging_config = get_logging_config()
@@ -33,18 +36,9 @@ from .api.v1 import api_router
 from .core.database import engine
 from .models.base import Base
 
-# Create FastAPI app
-app = FastAPI(
-    title="AutoClip API",
-    description="AI Video Content Pipeline API",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
 
-# Create database tables
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("Starting API server...")
     # Import all models to ensure tables are created
     try:
@@ -71,15 +65,26 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Telegram bot failed to start: {e}")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Application shutdown event"""
+    yield
+
     logger.info("Shutting down API server...")
 
-# Add CORS middleware
+
+# Create FastAPI app
+app = FastAPI(
+    title="AutoClip API",
+    description="AI Video Content Pipeline API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+# CORS middleware
+cors_origins = [origin.strip() for origin in settings.cors_origins.split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -89,11 +94,6 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 # Serve dashboard static files (production build)
-import os
-
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-
 dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard", "dist")
 
 # Root redirect — to dashboard if jobs exist, otherwise setup
@@ -101,6 +101,7 @@ dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashbo
 async def root_redirect():
     from .core.database import SessionLocal
     from .models.content_job import ContentJob
+
     try:
         db = SessionLocal()
         has_jobs = db.query(ContentJob).first() is not None
@@ -108,7 +109,8 @@ async def root_redirect():
         if has_jobs:
             return RedirectResponse(url="/dashboard", status_code=302)
     except Exception:
-        pass
+        logger.warning("Failed to check existing jobs for root redirect", exc_info=True)
+
     return RedirectResponse(url="/setup", status_code=302)
 
 dashboard_assets_dir = os.path.join(dashboard_dir, "assets")

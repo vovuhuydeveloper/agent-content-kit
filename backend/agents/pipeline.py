@@ -44,10 +44,10 @@ class Pipeline:
         from .fetcher import ContentFetcherAgent
         from .publisher import PublisherAgent
         from .reviewer import QualityReviewAgent
-        from .video_quality import VideoQualityAgent
         from .scriptwriter import ScriptWriterAgent
         from .thumbnail import ThumbnailAgent
         from .trend_scraper import TrendScraperAgent
+        from .video_quality import VideoQualityAgent
         from .voice import VoiceGeneratorAgent
 
         # Use Settings if available, otherwise fall back to env
@@ -132,6 +132,8 @@ class Pipeline:
         logger.info(f"{'=' * 60}")
 
         skip = bool(resume_from)
+        total_agents = len(self.agents)
+        completed_agents = 0
 
         for agent in self.agents:
             # Skip agents until we reach resume point
@@ -141,9 +143,15 @@ class Pipeline:
                 else:
                     agent.skip("checkpoint resume")
                     context["agent_results"].append(agent.get_status_dict())
+                    completed_agents += 1
                     continue
 
             try:
+                # Update DB progress before running agent
+                self._update_db_progress(
+                    context, current_agent=agent.name,
+                    progress=int((completed_agents / total_agents) * 100)
+                )
                 # Skip CompetitorAnalyzer if no URLs
                 if agent.name == "CompetitorAnalyzerAgent" and not context.get("competitor_urls"):
                     agent.skip("no competitor URLs")
@@ -177,6 +185,13 @@ class Pipeline:
 
                 context = agent.run(context)
                 context["agent_results"].append(agent.get_status_dict())
+                completed_agents += 1
+
+                # Update DB progress after agent success
+                self._update_db_progress(
+                    context, current_agent=agent.name,
+                    progress=int((completed_agents / total_agents) * 100)
+                )
 
                 # Save checkpoint after success
                 context["last_checkpoint"] = agent.name
@@ -266,6 +281,28 @@ class Pipeline:
         except Exception as e:
             logger.warning(f"Checkpoint load failed: {e}")
         return context
+
+    def _update_db_progress(self, context: Dict, current_agent: str, progress: int):
+        """Update job progress in database (fire-and-forget)."""
+        try:
+            from backend.core.database import SessionLocal
+            from backend.models.content_job import ContentJob
+
+            db = SessionLocal()
+            try:
+                job = db.query(ContentJob).filter(
+                    ContentJob.id == context.get("job_id")
+                ).first()
+                if job:
+                    job.current_agent = current_agent
+                    job.progress = float(progress)
+                    db.commit()
+            except Exception:
+                db.rollback()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug(f"Progress update skipped: {e}")
 
     def get_status(self) -> Dict[str, Any]:
         return {
