@@ -45,6 +45,9 @@ edge-tts
 qrcode[pil]
 psutil
 
+# ─── Browser Automation ───
+playwright
+
 # ─── OAuth / Upload ───
 google-api-python-client
 google-auth-oauthlib

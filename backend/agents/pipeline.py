@@ -5,6 +5,7 @@ Runs agents sequentially, saves state after each, supports resume.
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,7 +33,11 @@ class Pipeline:
 
     @classmethod
     def default(cls, config=None) -> "Pipeline":
-        """Build default pipeline with all agents"""
+        """Build default pipeline with all agents.
+
+        Uses config object (Settings) when available, falls back to
+        os.getenv() only when no config is injected.
+        """
         from .ab_testing import ABTestAgent
         from .analyzer import CompetitorAnalyzerAgent
         from .composer import VideoComposerAgent
@@ -42,20 +47,65 @@ class Pipeline:
         from .scriptwriter import ScriptWriterAgent
         from .thumbnail import ThumbnailAgent
         from .trend_scraper import TrendScraperAgent
+        from .video_quality import VideoQualityAgent
         from .voice import VoiceGeneratorAgent
+
+        # Use Settings if available, otherwise fall back to env
+        try:
+            from backend.core.config import Settings
+            _settings = Settings()
+        except ImportError:
+            _settings = None
 
         agents = [
             ContentFetcherAgent(config),
             CompetitorAnalyzerAgent(config),
-            TrendScraperAgent(config),        # Fetch TikTok trends
-            ScriptWriterAgent(config),         # Uses trends + history for unique scripts
+            TrendScraperAgent(config),
+            ScriptWriterAgent(config),
             ABTestAgent(config),
+        ]
+
+        # AI Video generation (Kling / Runway)
+        # os.getenv() takes precedence over settings for runtime overrides
+        kling_key = os.getenv("KLING_API_KEY") or (getattr(_settings, 'kling_api_key', '') if _settings else '')
+        runway_key = os.getenv("RUNWAY_API_KEY") or (getattr(_settings, 'runway_api_key', '') if _settings else '')
+
+        if (kling_key and len(kling_key) > 10) or (runway_key and len(runway_key) > 10):
+            from .ai_video import AIVideoAgent
+            agents.append(AIVideoAgent(config))
+            logger.info("🎬 AI Video generation (Kling/Runway) enabled")
+
+        # Pixelle-Video AI image generation
+        # os.getenv() takes precedence over settings for runtime overrides
+        pixelle_enabled = os.getenv("PIXELLE_ENABLED")
+        if pixelle_enabled is None:
+            pixelle_enabled = getattr(_settings, 'pixelle_enabled', False) if _settings else False
+        else:
+            pixelle_enabled = pixelle_enabled.lower() in ("true", "1", "yes")
+
+        pixelle_configured = bool(pixelle_enabled)
+        if not pixelle_configured:
+            pixelle_url = os.getenv("PIXELLE_VIDEO_API_URL")
+            if pixelle_url is None:
+                pixelle_url = getattr(_settings, 'pixelle_video_api_url', 'http://localhost:8085') if _settings else 'http://localhost:8085'
+            pixelle_configured = bool(pixelle_url and pixelle_url != "http://localhost:8085" and "://" in pixelle_url)
+        if pixelle_configured:
+            from .ai_image import AIImageAgent
+            agents.append(AIImageAgent(config))
+            logger.info("🎨 Pixelle-Video AI image generation enabled")
+
+        # Character agent (talking pet/avatar)
+        from .character import CharacterAgent
+        agents.append(CharacterAgent(config))
+
+        agents.extend([
             VoiceGeneratorAgent(config),
             VideoComposerAgent(config),
+            VideoQualityAgent(config),       # AI quality scoring + regeneration trigger
             ThumbnailAgent(config),
             QualityReviewAgent(config),
             PublisherAgent(config),
-        ]
+        ])
         return cls(agents)
 
     def run(self, job_input: Dict[str, Any], resume_from: str = "") -> Dict[str, Any]:
@@ -82,6 +132,8 @@ class Pipeline:
         logger.info(f"{'=' * 60}")
 
         skip = bool(resume_from)
+        total_agents = len(self.agents)
+        completed_agents = 0
 
         for agent in self.agents:
             # Skip agents until we reach resume point
@@ -91,9 +143,15 @@ class Pipeline:
                 else:
                     agent.skip("checkpoint resume")
                     context["agent_results"].append(agent.get_status_dict())
+                    completed_agents += 1
                     continue
 
             try:
+                # Update DB progress before running agent
+                self._update_db_progress(
+                    context, current_agent=agent.name,
+                    progress=int((completed_agents / total_agents) * 100)
+                )
                 # Skip CompetitorAnalyzer if no URLs
                 if agent.name == "CompetitorAnalyzerAgent" and not context.get("competitor_urls"):
                     agent.skip("no competitor URLs")
@@ -127,6 +185,13 @@ class Pipeline:
 
                 context = agent.run(context)
                 context["agent_results"].append(agent.get_status_dict())
+                completed_agents += 1
+
+                # Update DB progress after agent success
+                self._update_db_progress(
+                    context, current_agent=agent.name,
+                    progress=int((completed_agents / total_agents) * 100)
+                )
 
                 # Save checkpoint after success
                 context["last_checkpoint"] = agent.name
@@ -178,6 +243,7 @@ class Pipeline:
             "language": job_input.get("language", "vi"),
             "video_count": job_input.get("video_count", 1),
             "niche": job_input.get("niche", ""),
+            "character_mode": job_input.get("character_mode", "static"),
             "agent_results": [],
             "errors": [],
             "last_checkpoint": "",
@@ -215,6 +281,28 @@ class Pipeline:
         except Exception as e:
             logger.warning(f"Checkpoint load failed: {e}")
         return context
+
+    def _update_db_progress(self, context: Dict, current_agent: str, progress: int):
+        """Update job progress in database (fire-and-forget)."""
+        try:
+            from backend.core.database import SessionLocal
+            from backend.models.content_job import ContentJob
+
+            db = SessionLocal()
+            try:
+                job = db.query(ContentJob).filter(
+                    ContentJob.id == context.get("job_id")
+                ).first()
+                if job:
+                    job.current_agent = current_agent
+                    job.progress = float(progress)
+                    db.commit()
+            except Exception:
+                db.rollback()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug(f"Progress update skipped: {e}")
 
     def get_status(self) -> Dict[str, Any]:
         return {

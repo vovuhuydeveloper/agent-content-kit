@@ -20,6 +20,9 @@ class KeysRequest(BaseModel):
     google_api_key: str = ""
     pexels_api_key: str = ""
     elevenlabs_api_key: str = ""
+    kling_api_key: str = ""
+    runway_api_key: str = ""
+    runway_api_secret: str = ""
     llm_provider: str = ""  # openai | claude | gemini
     # OAuth credentials
     youtube_client_id: str = ""
@@ -57,6 +60,9 @@ def get_keys():
         "google_api_key": _mask(os.environ.get("GOOGLE_API_KEY", "")),
         "pexels_api_key": _mask(os.environ.get("PEXELS_API_KEY", "")),
         "elevenlabs_api_key": _mask(os.environ.get("ELEVENLABS_API_KEY", "")),
+        "kling_api_key": _mask(os.environ.get("KLING_API_KEY", "")),
+        "runway_api_key": _mask(os.environ.get("RUNWAY_API_KEY", "")),
+        "runway_api_secret": _mask(os.environ.get("RUNWAY_API_SECRET", "")),
         "telegram_bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),  # Not masked — user's own bot
         "telegram_chat_id": os.environ.get("TELEGRAM_CHAT_ID", ""),
         "llm_provider": os.environ.get("LLM_PROVIDER", "openai"),
@@ -82,6 +88,15 @@ def save_keys(data: KeysRequest):
     if data.elevenlabs_api_key:
         os.environ["ELEVENLABS_API_KEY"] = data.elevenlabs_api_key
         updated.append("elevenlabs")
+    if data.kling_api_key:
+        os.environ["KLING_API_KEY"] = data.kling_api_key
+        updated.append("kling")
+    if data.runway_api_key:
+        os.environ["RUNWAY_API_KEY"] = data.runway_api_key
+        updated.append("runway_key")
+    if data.runway_api_secret:
+        os.environ["RUNWAY_API_SECRET"] = data.runway_api_secret
+        updated.append("runway_secret")
     if data.llm_provider:
         os.environ["LLM_PROVIDER"] = data.llm_provider
         # Reset LLM manager to pick up new provider
@@ -175,6 +190,19 @@ def validate_key(data: ValidateRequest):
         except requests.RequestException as e:
             raise HTTPException(400, f"Validation failed: {e}")
 
+    elif data.service == "klingKey":
+        try:
+            r = requests.get(
+                "https://api.klingai.com/v1/videos/text2video",
+                headers={"Authorization": f"Bearer {data.key}"},
+                timeout=5,
+            )
+            if r.status_code in (200, 401, 403):
+                return {"valid": True, "message": "Kling key accepted!"}
+            raise HTTPException(400, f"Kling returned {r.status_code}")
+        except requests.RequestException as e:
+            raise HTTPException(400, f"Kling validation failed: {e}")
+
     return {"valid": False, "message": "Unknown service"}
 
 
@@ -256,4 +284,3 @@ def detect_telegram_chat(data: TelegramDetectRequest):
 
     except requests.RequestException as e:
         raise HTTPException(400, f"Connection failed: {e}")
-

@@ -31,6 +31,16 @@ class TestParseDocument:
         with pytest.raises(FileNotFoundError):
             parse_document("/nonexistent/file.txt")
 
+    def test_parse_nonexistent_file_raises(self):
+        with pytest.raises(FileNotFoundError, match="Document not found"):
+            parse_document("/tmp/completely_missing_file_xyz.txt")
+
+    def test_parse_unsupported_extension_raises(self, tmp_path):
+        bad_file = tmp_path / "test.xyz"
+        bad_file.write_text("content")
+        with pytest.raises(ValueError, match="Unsupported file type"):
+            parse_document(str(bad_file))
+
     def test_parse_unsupported_format(self, tmp_path):
         bad_file = tmp_path / "test.xyz"
         bad_file.write_text("content")

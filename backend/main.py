@@ -1,16 +1,22 @@
-"""FastAPI application entry point"""
+"""FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
 load_dotenv()  # Load .env BEFORE any other imports
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
-# Import configuration
-from .core.config import get_api_key, get_logging_config
+import backend.core.celery_app  # noqa: F401  # initialize Celery early
+
+from .core.config import get_api_key, get_logging_config, settings
 
 # Configure logging
 logging_config = get_logging_config()
@@ -18,8 +24,8 @@ logging.basicConfig(
     level=getattr(logging, logging_config["level"]),
     format=logging_config["format"],
     handlers=[
-        logging.StreamHandler(),  # Console output
-        logging.FileHandler(logging_config["file"])  # File output
+        logging.StreamHandler(),
+        logging.FileHandler(logging_config["file"])
     ]
 )
 
@@ -30,18 +36,9 @@ from .api.v1 import api_router
 from .core.database import engine
 from .models.base import Base
 
-# Create FastAPI app
-app = FastAPI(
-    title="AutoClip API",
-    description="AI Video Content Pipeline API",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
 
-# Create database tables
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("Starting API server...")
     # Import all models to ensure tables are created
     try:
@@ -60,9 +57,6 @@ async def startup_event():
     else:
         logger.warning("API key configuration not found")
 
-    # WebSocket gateway disabled, using simple progress system
-    logger.info("WebSocket gateway disabled, using simple progress system")
-
     # Start Telegram bot polling (handles approve/reject callbacks)
     try:
         from .telegram_bot import start_telegram_bot
@@ -71,20 +65,26 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Telegram bot failed to start: {e}")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Application shutdown event"""
-    logger.info("Shutting down API server...")
-    # WebSocket gateway disabled
-    # from .services.websocket_gateway_service import websocket_gateway_service
-    # await websocket_gateway_service.stop()
-    # logger.info("WebSocket gateway stopped")
-    logger.info("WebSocket gateway disabled")
+    yield
 
-# Add CORS middleware
+    logger.info("Shutting down API server...")
+
+
+# Create FastAPI app
+app = FastAPI(
+    title="AutoClip API",
+    description="AI Video Content Pipeline API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+# CORS middleware
+cors_origins = [origin.strip() for origin in settings.cors_origins.split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,18 +94,14 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 # Serve dashboard static files (production build)
-import os
-
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
-
 dashboard_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard", "dist")
 
-# Root redirect — vào dashboard nếu đã có job, setup nếu chưa
+# Root redirect — to dashboard if jobs exist, otherwise setup
 @app.get("/")
 async def root_redirect():
     from .core.database import SessionLocal
     from .models.content_job import ContentJob
+
     try:
         db = SessionLocal()
         has_jobs = db.query(ContentJob).first() is not None
@@ -113,7 +109,8 @@ async def root_redirect():
         if has_jobs:
             return RedirectResponse(url="/dashboard", status_code=302)
     except Exception:
-        pass
+        logger.warning("Failed to check existing jobs for root redirect", exc_info=True)
+
     return RedirectResponse(url="/setup", status_code=302)
 
 dashboard_assets_dir = os.path.join(dashboard_dir, "assets")
@@ -159,54 +156,54 @@ else:
 # Video categories endpoint
 @app.get("/api/v1/video-categories")
 async def get_video_categories():
-    """getVideo category configuration."""
+    """Get video category configuration."""
     return {
         "categories": [
             {
                 "value": "default",
                 "name": "Default",
-                "description": "General video contentprocessing",
+                "description": "General video content processing",
                 "icon": "🎬",
                 "color": "#4facfe"
             },
             {
                 "value": "knowledge",
                 "name": "Educational",
-                "description": "、、、",
+                "description": "Knowledge and education",
                 "icon": "📚",
                 "color": "#52c41a"
             },
             {
                 "value": "entertainment",
-                "name": "",
-                "description": "、、",
+                "name": "Entertainment",
+                "description": "Games and entertainment",
                 "icon": "🎮",
                 "color": "#722ed1"
             },
             {
                 "value": "business",
-                "name": "",
-                "description": "、、",
+                "name": "Business",
+                "description": "Business and finance",
                 "icon": "💼",
                 "color": "#fa8c16"
             },
             {
                 "value": "experience",
-                "name": "",
-                "description": "、",
+                "name": "Experience",
+                "description": "Experience sharing",
                 "icon": "🌟",
                 "color": "#eb2f96"
             },
             {
                 "value": "opinion",
-                "name": "",
-                "description": "、",
+                "name": "Opinion",
+                "description": "Opinions and commentary",
                 "icon": "💭",
                 "color": "#13c2c2"
             },
             {
                 "value": "speech",
-                "name": "",
+                "name": "Speech",
                 "description": "Public speeches and lectures",
                 "icon": "🎤",
                 "color": "#f5222d"
@@ -214,10 +211,10 @@ async def get_video_categories():
         ]
     }
 
-# Import unified errormiddleware
+# Import unified error middleware
 from .core.error_middleware import global_exception_handler
 
-# Register global exceptionhandler
+# Register global exception handler
 app.add_exception_handler(Exception, global_exception_handler)
 
 if __name__ == "__main__":
@@ -225,7 +222,7 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    # Defaultport
+    # Default port
     port = 8000
 
     # Check CLI arguments
@@ -238,5 +235,5 @@ if __name__ == "__main__":
                     logger.error(f"Invalid port number: {sys.argv[i + 1]}")
                     port = 8000
 
-    logger.info(f"Starting server, port，port: {port}")
+    logger.info(f"Starting server on port: {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
